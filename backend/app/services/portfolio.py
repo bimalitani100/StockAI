@@ -1,0 +1,281 @@
+from datetime import UTC, datetime
+from decimal import Decimal
+from uuid import UUID
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, selectinload
+
+from app.models.audit import AdminAuditLog
+from app.models.portfolio import Holding, Portfolio
+from app.models.transaction import PortfolioTransaction, TransactionType
+from app.models.user import User
+from app.schemas.auth import UserResponse
+from app.schemas.portfolio import (
+    AdminPortfolioResponse,
+    AdminUserSummary,
+    AuditLogResponse,
+    HoldingResponse,
+    PortfolioResponse,
+    TransactionCreateRequest,
+    TransactionCreateResponse,
+    TransactionResponse,
+)
+from app.services.accounting import (
+    InsufficientCashError,
+    calculate_accounting_summary,
+    list_cash_events,
+    validate_cash_timeline,
+)
+from app.services.ledger import InsufficientSharesError, calculate_position
+
+ZERO = Decimal("0")
+
+
+def _holding_response(holding: Holding) -> HoldingResponse:
+    quantity = float(holding.quantity)
+    average_cost = float(holding.average_cost)
+    return HoldingResponse(
+        id=holding.id,
+        symbol=holding.symbol,
+        quantity=quantity,
+        average_cost=average_cost,
+        total_cost=round(quantity * average_cost, 2),
+        updated_at=holding.updated_at,
+    )
+
+
+def _portfolio_response(portfolio: Portfolio) -> PortfolioResponse:
+    holdings = [_holding_response(holding) for holding in portfolio.holdings]
+    return PortfolioResponse(
+        id=portfolio.id,
+        name=portfolio.name,
+        holdings=holdings,
+        total_cost=round(sum(holding.total_cost for holding in holdings), 2),
+    )
+
+
+def _transaction_response(transaction: PortfolioTransaction) -> TransactionResponse:
+    quantity = float(transaction.quantity)
+    price = float(transaction.price)
+    fee = float(transaction.fee)
+    gross = quantity * price
+    cash_effect = gross - fee if transaction.transaction_type == TransactionType.SELL else -(gross + fee)
+    return TransactionResponse(
+        id=transaction.id,
+        symbol=transaction.symbol,
+        transaction_type=transaction.transaction_type,
+        quantity=quantity,
+        price=price,
+        fee=fee,
+        total_value=round(gross, 2),
+        cash_effect=round(cash_effect, 2),
+        occurred_at=transaction.occurred_at,
+    )
+
+
+def get_primary_portfolio(database: Session, user_id: UUID) -> Portfolio:
+    portfolio = database.scalar(
+        select(Portfolio)
+        .options(selectinload(Portfolio.holdings))
+        .execution_options(populate_existing=True)
+        .where(Portfolio.user_id == user_id)
+        .order_by(Portfolio.created_at)
+    )
+    if portfolio is None:
+        portfolio = Portfolio(user_id=user_id, name="Primary Portfolio")
+        database.add(portfolio)
+        database.commit()
+        database.refresh(portfolio)
+    return portfolio
+
+
+def get_user_portfolio(database: Session, user: User) -> PortfolioResponse:
+    return _portfolio_response(get_primary_portfolio(database, user.id))
+
+
+def _transactions_for_portfolio(
+    database: Session,
+    portfolio_id: UUID,
+    *,
+    limit: int = 100,
+) -> list[PortfolioTransaction]:
+    return list(
+        database.scalars(
+            select(PortfolioTransaction)
+            .where(PortfolioTransaction.portfolio_id == portfolio_id)
+            .order_by(
+                PortfolioTransaction.occurred_at.desc(),
+                PortfolioTransaction.created_at.desc(),
+            )
+            .limit(limit)
+        )
+    )
+
+
+def list_user_transactions(
+    database: Session,
+    user: User,
+    *,
+    limit: int = 100,
+) -> list[TransactionResponse]:
+    portfolio = get_primary_portfolio(database, user.id)
+    return [
+        _transaction_response(transaction)
+        for transaction in _transactions_for_portfolio(database, portfolio.id, limit=limit)
+    ]
+
+
+def _rebuild_symbol_holding(database: Session, portfolio: Portfolio, symbol: str) -> None:
+    transactions = list(
+        database.scalars(
+            select(PortfolioTransaction)
+            .where(
+                PortfolioTransaction.portfolio_id == portfolio.id,
+                PortfolioTransaction.symbol == symbol,
+            )
+            .order_by(
+                PortfolioTransaction.occurred_at,
+                PortfolioTransaction.created_at,
+            )
+        )
+    )
+    position = calculate_position(symbol, transactions)
+
+    holding = database.scalar(
+        select(Holding).where(
+            Holding.portfolio_id == portfolio.id,
+            Holding.symbol == symbol,
+        )
+    )
+    if position.quantity == ZERO:
+        if holding is not None:
+            database.delete(holding)
+        return
+
+    if holding is None:
+        holding = Holding(portfolio_id=portfolio.id, symbol=symbol)
+        database.add(holding)
+    holding.quantity = position.quantity
+    holding.average_cost = position.average_cost
+
+
+def record_transaction(
+    database: Session,
+    user: User,
+    request: TransactionCreateRequest,
+) -> TransactionCreateResponse:
+    portfolio = get_primary_portfolio(database, user.id)
+    database.scalar(select(Portfolio.id).where(Portfolio.id == portfolio.id).with_for_update())
+
+    occurred_at = request.occurred_at or datetime.now(UTC)
+    if occurred_at.tzinfo is None:
+        occurred_at = occurred_at.replace(tzinfo=UTC)
+    else:
+        occurred_at = occurred_at.astimezone(UTC)
+
+    transaction = PortfolioTransaction(
+        portfolio_id=portfolio.id,
+        symbol=request.symbol.strip().upper(),
+        transaction_type=TransactionType(request.transaction_type),
+        quantity=Decimal(str(request.quantity)),
+        price=Decimal(str(request.price)),
+        fee=Decimal(str(request.fee)),
+        occurred_at=occurred_at,
+    )
+    database.add(transaction)
+    try:
+        database.flush()
+        _rebuild_symbol_holding(database, portfolio, transaction.symbol)
+        validate_cash_timeline(database, portfolio.id)
+        database.commit()
+    except (InsufficientCashError, InsufficientSharesError):
+        database.rollback()
+        raise
+
+    database.refresh(transaction)
+    return TransactionCreateResponse(
+        transaction=_transaction_response(transaction),
+        portfolio=_portfolio_response(get_primary_portfolio(database, user.id)),
+        accounting=calculate_accounting_summary(database, portfolio.id),
+    )
+
+
+def list_users_for_admin(database: Session) -> list[AdminUserSummary]:
+    rows = database.execute(
+        select(
+            User,
+            func.count(Holding.id),
+            func.coalesce(func.sum(Holding.quantity * Holding.average_cost), 0),
+        )
+        .outerjoin(Portfolio, Portfolio.user_id == User.id)
+        .outerjoin(Holding, Holding.portfolio_id == Portfolio.id)
+        .group_by(User.id)
+        .order_by(User.created_at.desc())
+    ).all()
+    return [
+        AdminUserSummary(
+            user=UserResponse.model_validate(user),
+            holding_count=holding_count,
+            total_cost=round(float(total_cost), 2),
+        )
+        for user, holding_count, total_cost in rows
+    ]
+
+
+def view_user_portfolio_as_admin(
+    database: Session,
+    admin: User,
+    target_user_id: UUID,
+) -> AdminPortfolioResponse | None:
+    target = database.get(User, target_user_id)
+    if target is None:
+        return None
+
+    portfolio = get_primary_portfolio(database, target.id)
+    transactions = _transactions_for_portfolio(database, portfolio.id, limit=100)
+    cash_events = list_cash_events(database, portfolio.id, limit=100)
+    accounting = calculate_accounting_summary(database, portfolio.id)
+    audited_at = datetime.now(UTC)
+    database.add(
+        AdminAuditLog(
+            admin_user_id=admin.id,
+            target_user_id=target.id,
+            action="portfolio.view",
+            created_at=audited_at,
+        )
+    )
+    database.commit()
+    return AdminPortfolioResponse(
+        user=UserResponse.model_validate(target),
+        portfolio=_portfolio_response(portfolio),
+        transactions=[_transaction_response(transaction) for transaction in transactions],
+        cash_events=cash_events,
+        accounting=accounting,
+        audited_at=audited_at,
+    )
+
+
+def list_audit_logs(database: Session) -> list[AuditLogResponse]:
+    admin = User.__table__.alias("admin")
+    target = User.__table__.alias("target")
+    rows = database.execute(
+        select(
+            AdminAuditLog,
+            admin.c.email,
+            target.c.email,
+        )
+        .join(admin, admin.c.id == AdminAuditLog.admin_user_id)
+        .outerjoin(target, target.c.id == AdminAuditLog.target_user_id)
+        .order_by(AdminAuditLog.created_at.desc())
+        .limit(100)
+    ).all()
+    return [
+        AuditLogResponse(
+            id=log.id,
+            admin_email=admin_email,
+            target_email=target_email,
+            action=log.action,
+            created_at=log.created_at,
+        )
+        for log, admin_email, target_email in rows
+    ]
