@@ -4,6 +4,18 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+### Added
+
+- User-owned trade corrections that preserve the original transaction, correction time, and reason.
+- Safety replay that rejects a correction when it would create a historical oversell or cash deficit.
+- FIFO tax-lot inventory API and dashboard view with remaining quantity and per-lot cost basis.
+- PostgreSQL migration that adds correction metadata and rebuilds existing holding costs under FIFO.
+
+### Changed
+
+- Replaced weighted-average sale accounting with an explicit FIFO policy for realized gains and remaining cost basis.
+- Exposed correction status to audited administrator transaction views without granting write access.
+
 ## [0.6.0] - 2026-08-20
 
 ### Added

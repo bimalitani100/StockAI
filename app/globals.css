@@ -147,6 +147,9 @@ footer { border-top:1px solid var(--line); padding:24px clamp(24px,6vw,88px); di
 .transaction-list { display:grid; }
 .transaction-list article { display:grid; grid-template-columns:90px 70px 1fr auto; align-items:center; gap:12px; padding:13px 0; border-bottom:1px solid #e8ebe7; font-size:12px; }
 .transaction-list time { color:#737b75; }
+.transaction-actions { display:flex; align-items:center; justify-content:flex-end; gap:8px; }
+.transaction-list article.is-voided { background:#faf4f2; color:#777; }
+.transaction-list article small { display:block; margin-top:4px; color:#a0443a; }
 .transaction-type { width:max-content; border-radius:999px; padding:5px 8px; background:#ecefea; color:#4b554d; font:9px "Courier New",monospace; text-transform:uppercase; }
 .transaction-type.buy { background:#dff1df; color:#22612c; }
 .transaction-type.sell { background:#f7dfdc; color:#812f28; }
@@ -173,6 +176,14 @@ footer { border-top:1px solid var(--line); padding:24px clamp(24px,6vw,88px); di
 .data-table td small { display:block; color:#7b837d; margin-top:4px; }
 .table-action { border:0; background:#e9ede7; color:#27312a; padding:8px 10px; font-size:11px; cursor:pointer; white-space:nowrap; }
 .table-action:hover { background:var(--acid); }
+.danger-action { border:0; background:#a43f35; color:white; padding:10px 14px; font-weight:700; cursor:pointer; white-space:nowrap; }
+.danger-action:disabled { opacity:.6; cursor:wait; }
+.correction-form { grid-column:1/-1; display:grid; grid-template-columns:minmax(220px,1fr) minmax(220px,1fr) auto auto; gap:10px; align-items:end; padding:14px; background:#fff4f1; border:1px solid #e8bbb5; }
+.correction-form label { display:grid; gap:6px; color:#73352f; font:9px "Courier New",monospace; letter-spacing:.08em; text-transform:uppercase; }
+.correction-form input { width:100%; border:1px solid #d9a49d; background:white; color:#241b1a; padding:10px 12px; font:13px Arial,sans-serif; }
+.correction-form p { margin:0; color:#80544f; line-height:1.4; }
+.lot-policy { padding:8px 10px; background:#edf2e8; color:#4d612f; font:10px "Courier New",monospace; letter-spacing:.08em; }
+.voided-label { color:#a43f35; font-weight:700; }
 .ticker-link { color:#27312a; font-weight:800; text-decoration-color:#a7b0a8; text-underline-offset:3px; }
 .ticker-link:hover { color:#597500; text-decoration-color:#769d00; }
 .panel-empty { padding:26px; color:#747c75; text-align:center; background:#f5f6f3; }
@@ -185,6 +196,6 @@ footer { border-top:1px solid var(--line); padding:24px clamp(24px,6vw,88px); di
 .portal-loading { min-height:100vh; display:grid; place-items:center; background:var(--ink); color:var(--paper); }
 .market-workspace-panel { padding:clamp(24px,4vw,48px); background:var(--ink); color:var(--paper); border:1px solid #303932; }
 
-@media(max-width:1200px){.transaction-form,.cash-form{grid-template-columns:1fr 1fr 1fr}.portal-grid{grid-template-columns:1fr}.metric-grid.performance-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:1200px){.transaction-form,.cash-form{grid-template-columns:1fr 1fr 1fr}.portal-grid{grid-template-columns:1fr}.metric-grid.performance-grid{grid-template-columns:1fr 1fr}.correction-form{grid-template-columns:1fr 1fr}}
 @media(max-width:900px){.portal-shell{grid-template-columns:1fr}.portal-sidebar{position:static;height:auto;display:flex;flex-direction:row;align-items:center;gap:18px}.portal-sidebar nav{display:flex;margin:0 0 0 auto}.portal-sidebar .text-action{margin-left:0}.holding-form{grid-template-columns:1fr 1fr}.metric-grid{grid-template-columns:1fr}.audit-list>div{grid-template-columns:1fr 1fr}.audit-list time{text-align:left}}
-@media(max-width:700px){.version{display:none}.section-heading,.quote-content,.live-quote-heading{align-items:flex-start;flex-direction:column}.search-controls{flex-direction:column}.symbol-search button{min-height:48px}.price-block{text-align:left}.quote-freshness{justify-items:start}.chart-stage{min-height:310px}.chart-canvas{height:270px}.range-picker{gap:0}.range-picker button{min-width:44px}.principle-grid{grid-template-columns:1fr}.principle-grid article,.principle-grid article+article{padding:26px 0;border-right:0;border-bottom:1px solid var(--line);min-height:0}.quote-topline,.quote-footer,footer{flex-direction:column}.empty-state{padding:32px 22px}.lede{margin-left:0}.portal-sidebar{align-items:flex-start;flex-wrap:wrap}.portal-sidebar nav{order:3;width:100%;overflow-x:auto}.portal-sidebar nav a{white-space:nowrap}.portal-header,.panel-heading{flex-direction:column}.holding-form{grid-template-columns:1fr}.metric-grid.performance-grid,.accounting-strip{grid-template-columns:1fr}.transaction-list article{grid-template-columns:70px 1fr}.transaction-list time{grid-column:2}.cash-event-list article{grid-template-columns:1fr 1fr}.audit-list>div{grid-template-columns:1fr}.portal-content{padding:24px 16px}.auth-form{padding:28px 22px}}
+@media(max-width:700px){.version{display:none}.section-heading,.quote-content,.live-quote-heading{align-items:flex-start;flex-direction:column}.search-controls{flex-direction:column}.symbol-search button{min-height:48px}.price-block{text-align:left}.quote-freshness{justify-items:start}.chart-stage{min-height:310px}.chart-canvas{height:270px}.range-picker{gap:0}.range-picker button{min-width:44px}.principle-grid{grid-template-columns:1fr}.principle-grid article,.principle-grid article+article{padding:26px 0;border-right:0;border-bottom:1px solid var(--line);min-height:0}.quote-topline,.quote-footer,footer{flex-direction:column}.empty-state{padding:32px 22px}.lede{margin-left:0}.portal-sidebar{align-items:flex-start;flex-wrap:wrap}.portal-sidebar nav{order:3;width:100%;overflow-x:auto}.portal-sidebar nav a{white-space:nowrap}.portal-header,.panel-heading{flex-direction:column}.holding-form{grid-template-columns:1fr}.metric-grid.performance-grid,.accounting-strip{grid-template-columns:1fr}.transaction-list article{grid-template-columns:70px 1fr}.transaction-actions{grid-column:2;justify-content:flex-start}.correction-form{grid-template-columns:1fr}.cash-event-list article{grid-template-columns:1fr 1fr}.audit-list>div{grid-template-columns:1fr}.portal-content{padding:24px 16px}.auth-form{padding:28px 22px}}

@@ -130,8 +130,8 @@ export function AdminDashboard() {
             ) : <p className="panel-empty">This user has no recorded holdings.</p>}
             <h3 className="subsection-title">Transaction history</h3>
             {selected.transactions.length ? (
-              <div className="data-table-wrap"><table className="data-table"><thead><tr><th>Type</th><th>Symbol</th><th>Quantity</th><th>Price</th><th>Fee</th><th>Date</th></tr></thead><tbody>
-                {selected.transactions.map((transaction) => <tr key={transaction.id}><td>{transaction.transaction_type.replace("_", " ")}</td><td><strong>{transaction.symbol}</strong></td><td>{transaction.quantity}</td><td>${transaction.price.toFixed(2)}</td><td>${transaction.fee.toFixed(2)}</td><td>{new Date(transaction.occurred_at).toLocaleDateString()}</td></tr>)}
+              <div className="data-table-wrap"><table className="data-table"><thead><tr><th>Type</th><th>Symbol</th><th>Quantity</th><th>Price</th><th>Fee</th><th>Date</th><th>Status</th></tr></thead><tbody>
+                {selected.transactions.map((transaction) => <tr key={transaction.id}><td>{transaction.transaction_type.replace("_", " ")}</td><td><strong>{transaction.symbol}</strong></td><td>{transaction.quantity}</td><td>${transaction.price.toFixed(2)}</td><td>${transaction.fee.toFixed(2)}</td><td>{new Date(transaction.occurred_at).toLocaleDateString()}</td><td>{transaction.voided_at ? <span className="voided-label">Voided<small>{transaction.void_reason}</small></span> : "Active"}</td></tr>)}
               </tbody></table></div>
             ) : <p className="panel-empty">This user has no recorded transactions.</p>}
             <h3 className="subsection-title">Cash history</h3>

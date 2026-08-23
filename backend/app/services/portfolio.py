@@ -16,6 +16,10 @@ from app.schemas.portfolio import (
     AuditLogResponse,
     HoldingResponse,
     PortfolioResponse,
+    TaxLotInventoryResponse,
+    TaxLotResponse,
+    TransactionCorrectionRequest,
+    TransactionCorrectionResponse,
     TransactionCreateRequest,
     TransactionCreateResponse,
     TransactionResponse,
@@ -29,6 +33,14 @@ from app.services.accounting import (
 from app.services.ledger import InsufficientSharesError, calculate_position
 
 ZERO = Decimal("0")
+
+
+class TransactionNotFoundError(LookupError):
+    pass
+
+
+class TransactionNotCorrectableError(ValueError):
+    pass
 
 
 def _holding_response(holding: Holding) -> HoldingResponse:
@@ -70,6 +82,8 @@ def _transaction_response(transaction: PortfolioTransaction) -> TransactionRespo
         total_value=round(gross, 2),
         cash_effect=round(cash_effect, 2),
         occurred_at=transaction.occurred_at,
+        voided_at=transaction.voided_at,
+        void_reason=transaction.void_reason,
     )
 
 
@@ -132,6 +146,7 @@ def _rebuild_symbol_holding(database: Session, portfolio: Portfolio, symbol: str
             .where(
                 PortfolioTransaction.portfolio_id == portfolio.id,
                 PortfolioTransaction.symbol == symbol,
+                PortfolioTransaction.voided_at.is_(None),
             )
             .order_by(
                 PortfolioTransaction.occurred_at,
@@ -194,6 +209,82 @@ def record_transaction(
 
     database.refresh(transaction)
     return TransactionCreateResponse(
+        transaction=_transaction_response(transaction),
+        portfolio=_portfolio_response(get_primary_portfolio(database, user.id)),
+        accounting=calculate_accounting_summary(database, portfolio.id),
+    )
+
+
+def get_user_tax_lots(database: Session, user: User) -> TaxLotInventoryResponse:
+    portfolio = get_primary_portfolio(database, user.id)
+    transactions = list(
+        database.scalars(
+            select(PortfolioTransaction)
+            .where(
+                PortfolioTransaction.portfolio_id == portfolio.id,
+                PortfolioTransaction.voided_at.is_(None),
+            )
+            .order_by(
+                PortfolioTransaction.occurred_at,
+                PortfolioTransaction.created_at,
+            )
+        )
+    )
+    lots: list[TaxLotResponse] = []
+    for symbol in sorted({transaction.symbol for transaction in transactions}):
+        position = calculate_position(
+            symbol,
+            [transaction for transaction in transactions if transaction.symbol == symbol],
+        )
+        lots.extend(
+            TaxLotResponse(
+                source_transaction_id=lot.source_transaction_id,
+                symbol=symbol,
+                acquired_at=lot.acquired_at,
+                original_quantity=float(lot.original_quantity),
+                remaining_quantity=float(lot.remaining_quantity),
+                cost_per_share=round(float(lot.cost_per_share), 4),
+                cost_basis=round(float(lot.remaining_quantity * lot.cost_per_share), 2),
+            )
+            for lot in position.lots
+        )
+    return TaxLotInventoryResponse(lots=lots)
+
+
+def void_transaction(
+    database: Session,
+    user: User,
+    transaction_id: UUID,
+    request: TransactionCorrectionRequest,
+) -> TransactionCorrectionResponse:
+    portfolio = get_primary_portfolio(database, user.id)
+    database.scalar(select(Portfolio.id).where(Portfolio.id == portfolio.id).with_for_update())
+    transaction = database.scalar(
+        select(PortfolioTransaction).where(
+            PortfolioTransaction.id == transaction_id,
+            PortfolioTransaction.portfolio_id == portfolio.id,
+        )
+    )
+    if transaction is None:
+        raise TransactionNotFoundError
+    if transaction.transaction_type == TransactionType.OPENING_BALANCE:
+        raise TransactionNotCorrectableError("System opening transactions cannot be voided.")
+    if transaction.voided_at is not None:
+        raise TransactionNotCorrectableError("This transaction has already been voided.")
+
+    transaction.voided_at = datetime.now(UTC)
+    transaction.void_reason = request.reason.strip()
+    try:
+        database.flush()
+        _rebuild_symbol_holding(database, portfolio, transaction.symbol)
+        validate_cash_timeline(database, portfolio.id)
+        database.commit()
+    except (InsufficientCashError, InsufficientSharesError):
+        database.rollback()
+        raise
+
+    database.refresh(transaction)
+    return TransactionCorrectionResponse(
         transaction=_transaction_response(transaction),
         portfolio=_portfolio_response(get_primary_portfolio(database, user.id)),
         accounting=calculate_accounting_summary(database, portfolio.id),

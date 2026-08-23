@@ -28,12 +28,31 @@ export interface PortfolioTransaction {
   total_value: number;
   cash_effect: number;
   occurred_at: string;
+  voided_at: string | null;
+  void_reason: string | null;
 }
 
 export interface TransactionCreateResult {
   transaction: PortfolioTransaction;
   portfolio: Portfolio;
   accounting: AccountingSummary;
+}
+
+export type TransactionCorrectionResult = TransactionCreateResult;
+
+export interface TaxLot {
+  source_transaction_id: string;
+  symbol: string;
+  acquired_at: string;
+  original_quantity: number;
+  remaining_quantity: number;
+  cost_per_share: number;
+  cost_basis: number;
+}
+
+export interface TaxLotInventory {
+  policy: "fifo";
+  lots: TaxLot[];
 }
 
 export type CashEventType = "deposit" | "withdrawal" | "dividend" | "opening_balance";

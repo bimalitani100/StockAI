@@ -11,6 +11,8 @@ import type {
   Portfolio,
   PortfolioValuation,
   PortfolioTransaction,
+  TaxLotInventory,
+  TransactionCorrectionResult,
   TransactionCreateResult,
   TransactionType,
   Watchlist,
@@ -46,6 +48,10 @@ export function getTransactions(): Promise<PortfolioTransaction[]> {
   return apiRequest<PortfolioTransaction[]>("/api/v1/portfolio/transactions");
 }
 
+export function getTaxLots(): Promise<TaxLotInventory> {
+  return apiRequest<TaxLotInventory>("/api/v1/portfolio/tax-lots");
+}
+
 export function recordTransaction(
   transactionType: Exclude<TransactionType, "opening_balance">,
   symbol: string,
@@ -65,6 +71,19 @@ export function recordTransaction(
       occurred_at: occurredAt,
     }),
   });
+}
+
+export function voidTransaction(
+  transactionId: string,
+  reason: string,
+): Promise<TransactionCorrectionResult> {
+  return apiRequest<TransactionCorrectionResult>(
+    `/api/v1/portfolio/transactions/${encodeURIComponent(transactionId)}/void`,
+    {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    },
+  );
 }
 
 export function getAccounting(): Promise<AccountingSummary> {

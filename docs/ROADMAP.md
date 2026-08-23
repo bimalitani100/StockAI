@@ -16,21 +16,31 @@
 - Data-preserving funding migration for existing transaction history
 - Admin read-only cash and accounting visibility under audit
 
-## v0.6 — Live market research (current)
+## v0.6 — Live market research and CI (complete)
 
 - Auto-updating quotes with explicit delayed-development-feed labeling
 - Chart-ready history and interactive 1D, 1W, 1M, 3M, YTD, 1Y, 5Y, and MAX ranges
 - Responsive gain/loss chart with hover details and previous-close baseline
 - Portfolio, watchlist, and audited admin navigation into symbol research
 - Visibility-aware polling that pauses background-tab requests
+- GitHub Actions checks for frontend, backend, migrations, PostgreSQL, and Compose configuration
+
+## v0.7 — Portfolio accuracy (current)
+
+- History-preserving trade corrections with a required reason
+- Full ledger replay before accepting a correction
+- FIFO realized gain and remaining holding cost basis
+- Read-only open tax-lot inventory linked to source purchases
+- Data-preserving migration from weighted-average holdings
+- User correction controls and audited admin visibility
 
 ## Candidate next milestones
 
-- **v0.7:** stock splits, mergers, spin-offs, transaction corrections, and tax-lot policy
-- **v0.8:** time-weighted/money-weighted portfolio returns, persisted price snapshots, and benchmark comparison
-- **v0.9:** email verification, recovery, throttling, privileged MFA, and managed identity evaluation
-- **v0.10:** reproducible analytics and model evaluation before predictive UI
-- **Later:** full-stack containers, CI/CD, observability, and AWS after runtime requirements are measured
+- **v0.8:** stock splits first, then explicit rules for mergers and spin-offs
+- **v0.9:** time-weighted/money-weighted portfolio returns, persisted price snapshots, and benchmark comparison
+- **v0.10:** email verification, recovery, throttling, privileged MFA, and managed identity evaluation
+- **v0.11:** reproducible analytics and model evaluation before predictive UI
+- **Later:** full-stack containers, deployment automation, observability, and AWS after runtime requirements are measured
 
 Versions represent tested outcomes, not dates. Accounting completeness and reproducible market
 history must exist before sophisticated performance claims or ML predictions.

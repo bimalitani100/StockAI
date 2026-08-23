@@ -43,7 +43,7 @@ export function AuthenticatedMarketWorkspace({ initialSymbol }: { initialSymbol?
     <main className={`portal-shell${isAdmin ? " admin-theme" : ""}`}>
       <aside className="portal-sidebar">
         <Link className="portal-brand" href={dashboardPath}>
-          StockAI <small>{isAdmin ? "Admin" : "v0.6"}</small>
+          StockAI <small>{isAdmin ? "Admin" : "v0.7"}</small>
         </Link>
         <nav>
           <Link href={dashboardPath}>{isAdmin ? "Administration" : "Performance"}</Link>

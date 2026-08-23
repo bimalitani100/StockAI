@@ -1,4 +1,5 @@
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -12,6 +13,9 @@ from app.schemas.portfolio import (
     CashEventResponse,
     PortfolioResponse,
     PortfolioValuationResponse,
+    TaxLotInventoryResponse,
+    TransactionCorrectionRequest,
+    TransactionCorrectionResponse,
     TransactionCreateRequest,
     TransactionCreateResponse,
     TransactionResponse,
@@ -25,10 +29,14 @@ from app.services.accounting import (
 )
 from app.services.ledger import InsufficientSharesError
 from app.services.portfolio import (
-    get_user_portfolio,
+    TransactionNotCorrectableError,
+    TransactionNotFoundError,
     get_primary_portfolio,
+    get_user_portfolio,
+    get_user_tax_lots,
     list_user_transactions,
     record_transaction,
+    void_transaction,
 )
 
 router = APIRouter()
@@ -94,6 +102,14 @@ def transactions(
     return list_user_transactions(database, current_user, limit=limit)
 
 
+@router.get("/tax-lots", response_model=TaxLotInventoryResponse)
+def tax_lots(
+    current_user: CurrentUser,
+    database: DatabaseSession,
+) -> TaxLotInventoryResponse:
+    return get_user_tax_lots(database, current_user)
+
+
 @router.post(
     "/transactions",
     response_model=TransactionCreateResponse,
@@ -107,4 +123,25 @@ def create_transaction(
     try:
         return record_transaction(database, current_user, request)
     except (InsufficientCashError, InsufficientSharesError) as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+
+@router.post(
+    "/transactions/{transaction_id}/void",
+    response_model=TransactionCorrectionResponse,
+)
+def correct_transaction(
+    transaction_id: UUID,
+    request: TransactionCorrectionRequest,
+    current_user: CurrentUser,
+    database: DatabaseSession,
+) -> TransactionCorrectionResponse:
+    try:
+        return void_transaction(database, current_user, transaction_id, request)
+    except TransactionNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found.",
+        ) from error
+    except (TransactionNotCorrectableError, InsufficientCashError, InsufficientSharesError) as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error

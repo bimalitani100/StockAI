@@ -11,12 +11,14 @@ import {
   getPortfolio,
   getPortfolioValuation,
   getSession,
+  getTaxLots,
   getTransactions,
   getWatchlist,
   logout,
   recordCashEvent,
   recordTransaction,
   removeFromWatchlist,
+  voidTransaction,
 } from "@/lib/auth-api";
 import { ApiRequestError } from "@/lib/api";
 import type { AuthUser } from "@/types/auth";
@@ -27,6 +29,7 @@ import type {
   Portfolio,
   PortfolioTransaction,
   PortfolioValuation,
+  TaxLotInventory,
   TransactionType,
   Watchlist,
 } from "@/types/portfolio";
@@ -59,6 +62,7 @@ export function UserDashboard() {
   const [accounting, setAccounting] = useState<AccountingSummary | null>(null);
   const [cashEvents, setCashEvents] = useState<CashEvent[] | null>(null);
   const [valuation, setValuation] = useState<PortfolioValuation | null>(null);
+  const [taxLots, setTaxLots] = useState<TaxLotInventory | null>(null);
   const [valuationLoading, setValuationLoading] = useState(true);
   const [valuationError, setValuationError] = useState<string | null>(null);
 
@@ -74,6 +78,8 @@ export function UserDashboard() {
   const [cashSymbol, setCashSymbol] = useState("");
   const [cashOccurredAt, setCashOccurredAt] = useState(localDateTimeValue);
   const [watchSymbol, setWatchSymbol] = useState("");
+  const [correctingTransactionId, setCorrectingTransactionId] = useState<string | null>(null);
+  const [correctionReason, setCorrectionReason] = useState("");
 
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -87,8 +93,17 @@ export function UserDashboard() {
       getWatchlist(),
       getAccounting(),
       getCashEvents(),
+      getTaxLots(),
     ])
-      .then(([session, loadedPortfolio, loadedTransactions, loadedWatchlist, loadedAccounting, loadedCashEvents]) => {
+      .then(([
+        session,
+        loadedPortfolio,
+        loadedTransactions,
+        loadedWatchlist,
+        loadedAccounting,
+        loadedCashEvents,
+        loadedTaxLots,
+      ]) => {
         if (session.user.role === "admin") {
           router.replace("/admin");
           return;
@@ -99,6 +114,7 @@ export function UserDashboard() {
         setWatchlist(loadedWatchlist);
         setAccounting(loadedAccounting);
         setCashEvents(loadedCashEvents);
+        setTaxLots(loadedTaxLots);
       })
       .catch((requestError: unknown) => {
         if (requestError instanceof ApiRequestError && requestError.status === 401) {
@@ -145,6 +161,7 @@ export function UserDashboard() {
       setPortfolio(result.portfolio);
       setAccounting(result.accounting);
       setTransactions(await getTransactions());
+      setTaxLots(await getTaxLots());
       setNotice(`${transactionType === "buy" ? "Buy" : "Sell"} recorded for ${result.transaction.symbol}.`);
       setSymbol("");
       setQuantity("");
@@ -153,6 +170,34 @@ export function UserDashboard() {
       await refreshValuation();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to record transaction.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleTransactionCorrection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!correctingTransactionId) return;
+
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await voidTransaction(correctingTransactionId, correctionReason);
+      setPortfolio(result.portfolio);
+      setAccounting(result.accounting);
+      const [loadedTransactions, loadedTaxLots] = await Promise.all([
+        getTransactions(),
+        getTaxLots(),
+      ]);
+      setTransactions(loadedTransactions);
+      setTaxLots(loadedTaxLots);
+      setCorrectingTransactionId(null);
+      setCorrectionReason("");
+      setNotice(`The ${result.transaction.symbol} trade was voided; its original record was preserved.`);
+      await refreshValuation();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to correct transaction.");
     } finally {
       setSaving(false);
     }
@@ -209,7 +254,7 @@ export function UserDashboard() {
     router.refresh();
   }
 
-  if (!user || !portfolio || !transactions || !watchlist || !accounting || !cashEvents) {
+  if (!user || !portfolio || !transactions || !watchlist || !accounting || !cashEvents || !taxLots) {
     return <main className="portal-loading">{error ?? "Loading your StockAI workspace…"}</main>;
   }
 
@@ -223,7 +268,7 @@ export function UserDashboard() {
   return (
     <main className="portal-shell">
       <aside className="portal-sidebar">
-        <Link className="portal-brand" href="/dashboard">StockAI <small>v0.6</small></Link>
+        <Link className="portal-brand" href="/dashboard">StockAI <small>v0.7 development</small></Link>
         <nav>
           <a className="active" href="#overview">Performance</a>
           <a href="#cash">Cash</a>
@@ -307,10 +352,92 @@ export function UserDashboard() {
           ) : <p className="panel-empty">No holdings yet. Deposit cash, then record your first buy.</p>}
         </section>
 
+        <section className="portal-panel" id="tax-lots">
+          <div className="panel-heading">
+            <div>
+              <span className="kicker">FIFO INVENTORY</span>
+              <h2>Open tax lots</h2>
+              <p>Oldest shares are sold first; each remaining purchase keeps its own cost basis.</p>
+            </div>
+            <span className="lot-policy">Policy: {taxLots.policy.toUpperCase()}</span>
+          </div>
+          {taxLots.lots.length ? (
+            <div className="data-table-wrap">
+              <table className="data-table">
+                <thead><tr><th>Symbol</th><th>Acquired</th><th>Original shares</th><th>Remaining</th><th>Cost/share</th><th>Open cost basis</th></tr></thead>
+                <tbody>
+                  {taxLots.lots.map((lot) => (
+                    <tr key={lot.source_transaction_id}>
+                      <td><Link className="ticker-link" href={`/market?symbol=${encodeURIComponent(lot.symbol)}`}>{lot.symbol}</Link></td>
+                      <td>{new Date(lot.acquired_at).toLocaleDateString()}</td>
+                      <td>{lot.original_quantity.toLocaleString()}</td>
+                      <td>{lot.remaining_quantity.toLocaleString()}</td>
+                      <td>{money(lot.cost_per_share)}</td>
+                      <td>{money(lot.cost_basis)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : <p className="panel-empty">Open lots appear after you record a purchase.</p>}
+        </section>
+
         <div className="portal-grid">
           <section className="portal-panel">
             <div className="panel-heading"><div><span className="kicker">LEDGER</span><h2>Recent trades</h2></div></div>
-            {transactions.length ? <div className="transaction-list">{transactions.map((transaction) => <article key={transaction.id}><span className={`transaction-type ${transaction.transaction_type}`}>{transactionLabel(transaction.transaction_type)}</span><strong>{transaction.symbol}</strong><span>{transaction.quantity.toLocaleString()} × {money(transaction.price)}{transaction.fee ? ` + ${money(transaction.fee)} fee` : ""}</span><time>{new Date(transaction.occurred_at).toLocaleDateString()}</time></article>)}</div> : <p className="panel-empty">No transactions recorded yet.</p>}
+            {transactions.length ? (
+              <div className="transaction-list">
+                {transactions.map((transaction) => (
+                  <article className={transaction.voided_at ? "is-voided" : undefined} key={transaction.id}>
+                    <span className={`transaction-type ${transaction.transaction_type}`}>{transactionLabel(transaction.transaction_type)}</span>
+                    <strong>{transaction.symbol}</strong>
+                    <span>
+                      {transaction.quantity.toLocaleString()} × {money(transaction.price)}
+                      {transaction.fee ? ` + ${money(transaction.fee)} fee` : ""}
+                      {transaction.voided_at && <small>Voided: {transaction.void_reason}</small>}
+                    </span>
+                    <div className="transaction-actions">
+                      <time>{new Date(transaction.occurred_at).toLocaleDateString()}</time>
+                      {!transaction.voided_at && transaction.transaction_type !== "opening_balance" && (
+                        <button
+                          className="table-action"
+                          type="button"
+                          onClick={() => {
+                            setCorrectingTransactionId(transaction.id);
+                            setCorrectionReason("");
+                          }}
+                        >
+                          Correct
+                        </button>
+                      )}
+                    </div>
+                    {correctingTransactionId === transaction.id && (
+                      <form className="correction-form" onSubmit={handleTransactionCorrection}>
+                        <label>
+                          Why is this trade incorrect?
+                          <input
+                            value={correctionReason}
+                            onChange={(event) => setCorrectionReason(event.target.value)}
+                            minLength={3}
+                            maxLength={500}
+                            required
+                          />
+                        </label>
+                        <p>The original remains visible, but it stops affecting shares, cash, and gains.</p>
+                        <button className="danger-action" type="submit" disabled={saving}>Void trade</button>
+                        <button
+                          className="table-action"
+                          type="button"
+                          onClick={() => setCorrectingTransactionId(null)}
+                        >
+                          Cancel
+                        </button>
+                      </form>
+                    )}
+                  </article>
+                ))}
+              </div>
+            ) : <p className="panel-empty">No transactions recorded yet.</p>}
           </section>
 
           <section className="portal-panel" id="watchlist">

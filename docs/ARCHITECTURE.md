@@ -1,6 +1,6 @@
 # StockAI architecture
 
-## v0.6 system context
+## v0.7 system context
 
 ```mermaid
 flowchart LR
@@ -15,9 +15,33 @@ flowchart LR
   A -. "future" .-> M["Analytics and ML services"]
 ```
 
-The trade ledger controls shares; the cash ledger controls money; holdings are a rebuildable
-projection. Valuation joins the accounting state with current quotes but does not persist or alter
-either ledger.
+The valid trade ledger controls shares; the cash ledger controls money; holdings and open FIFO lots
+are rebuildable projections. A corrected trade stays in the ledger with a void time and reason but
+is excluded from calculations. Valuation joins accounting state with current quotes but does not
+persist or alter either ledger.
+
+## Trade correction flow
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant A as FastAPI
+  participant D as PostgreSQL
+  B->>A: POST transaction/id/void with reason
+  A->>D: Lock caller's portfolio
+  A->>D: Mark original trade void
+  A->>D: Replay FIFO shares and chronological cash
+  alt Every invariant remains valid
+    A->>D: Rebuild holding projection and commit
+    A-->>B: Corrected trade, portfolio, accounting
+  else A later event becomes impossible
+    A->>D: Roll back correction and projection
+    A-->>B: 409 Conflict
+  end
+```
+
+Corrections never update the original quantity, price, symbol, fee, or occurrence time. This keeps
+the user and audited administrators able to see what was entered and why it stopped affecting results.
 
 ## Auto-updating research flow
 
@@ -95,6 +119,8 @@ erDiagram
     decimal price
     decimal fee
     datetime occurred_at
+    datetime voided_at nullable
+    string void_reason nullable
   }
   CASH_EVENT {
     string event_type
@@ -107,8 +133,14 @@ erDiagram
 `deposit`, `withdrawal`, and `opening_balance` affect net contributions. `dividend` affects cash
 and return but not contributions. Buy fees enter cost basis; sell fees reduce realized proceeds.
 
-## Performance definition and limits
+## FIFO lot policy and performance limits
 
-v0.5 uses `total value − net contributions` for since-inception dollar return. This is internally
-consistent for the modeled events, but it is not time-weighted return, internal rate of return,
-or tax reporting. Corporate actions, lots, shorts, margin, and currency conversion remain future work.
+Each buy or opening transaction creates one lot whose per-share cost includes its allocated buy fee.
+A sale consumes the oldest open shares first; its fee reduces realized proceeds. Holdings store the
+average cost of only the remaining FIFO lots, while the API can rebuild each individual lot from the
+ledger. Lots are derived rather than persisted, avoiding two competing sources of truth.
+
+StockAI uses `total value − net contributions` for since-inception dollar return. This is internally
+consistent for the modeled events, but it is not time-weighted return, internal rate of return, tax
+reporting, or specific-lot tax advice. Corporate actions, shorts, margin, and currency conversion
+remain future work.
