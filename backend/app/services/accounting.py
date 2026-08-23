@@ -44,7 +44,10 @@ def _all_transactions(database: Session, portfolio_id: UUID) -> list[PortfolioTr
     return list(
         database.scalars(
             select(PortfolioTransaction)
-            .where(PortfolioTransaction.portfolio_id == portfolio_id)
+            .where(
+                PortfolioTransaction.portfolio_id == portfolio_id,
+                PortfolioTransaction.voided_at.is_(None),
+            )
             .order_by(PortfolioTransaction.occurred_at, PortfolioTransaction.created_at)
         )
     )

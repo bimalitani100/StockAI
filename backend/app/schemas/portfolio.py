@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.cash_event import CashEventType
 from app.models.transaction import TransactionType
@@ -44,6 +44,35 @@ class TransactionResponse(BaseModel):
     total_value: float
     cash_effect: float
     occurred_at: datetime
+    voided_at: datetime | None
+    void_reason: str | None
+
+
+class TransactionCorrectionRequest(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def reason_must_explain_the_correction(cls, value: str) -> str:
+        reason = value.strip()
+        if len(reason) < 3:
+            raise ValueError("A correction reason must contain at least 3 characters.")
+        return reason
+
+
+class TaxLotResponse(BaseModel):
+    source_transaction_id: UUID
+    symbol: str
+    acquired_at: datetime
+    original_quantity: float
+    remaining_quantity: float
+    cost_per_share: float
+    cost_basis: float
+
+
+class TaxLotInventoryResponse(BaseModel):
+    policy: Literal["fifo"] = "fifo"
+    lots: list[TaxLotResponse]
 
 
 class CashEventCreateRequest(BaseModel):
@@ -81,6 +110,12 @@ class AccountingSummaryResponse(BaseModel):
 
 
 class TransactionCreateResponse(BaseModel):
+    transaction: TransactionResponse
+    portfolio: PortfolioResponse
+    accounting: AccountingSummaryResponse
+
+
+class TransactionCorrectionResponse(BaseModel):
     transaction: TransactionResponse
     portfolio: PortfolioResponse
     accounting: AccountingSummaryResponse

@@ -121,7 +121,7 @@ class YahooFinanceProvider(MarketDataProvider):
             }
         )
         url = f"{self.base_url}/{quote(symbol, safe='')}?{query}"
-        request = Request(url, headers={"User-Agent": "Mozilla/5.0 StockAI/0.6"})
+        request = Request(url, headers={"User-Agent": "Mozilla/5.0 StockAI/0.7"})
 
         try:
             with urlopen(request, timeout=8) as response:

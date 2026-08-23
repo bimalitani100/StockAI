@@ -8,7 +8,7 @@ export default function Home() {
           <span className="brand-mark">S</span>
           StockAI
         </a>
-        <div className="nav-actions"><span className="version">Live research · v0.6.0</span><a href="/login">Sign in</a></div>
+        <div className="nav-actions"><span className="version">Portfolio accuracy · v0.7.0</span><a href="/login">Sign in</a></div>
       </nav>
 
       <section className="hero" id="top">
@@ -34,7 +34,7 @@ export default function Home() {
         </div>
       </section>
 
-      <footer><span>StockAI · Learning by shipping</span><span>Next: corporate actions &amp; tax lots</span></footer>
+      <footer><span>StockAI · Learning by shipping</span><span>Next: corporate actions</span></footer>
     </main>
   );
 }

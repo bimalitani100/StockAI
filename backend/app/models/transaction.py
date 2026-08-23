@@ -49,5 +49,7 @@ class PortfolioTransaction(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
     )
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    void_reason: Mapped[str | None] = mapped_column(String(500), default=None)
 
     portfolio: Mapped[Portfolio] = relationship(back_populates="transactions")

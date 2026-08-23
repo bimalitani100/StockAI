@@ -8,6 +8,7 @@
 | View market summary | Yes | Yes | Yes |
 | View own account and portfolio | No | Yes | Yes |
 | Record own transactions and view derived holdings | No | Yes | Yes |
+| Correct own trades and view own tax lots | No | Yes | Yes |
 | Manage own watchlist | No | Yes | Yes |
 | Record own cash activity and view performance | No | Yes | Yes |
 | List all accounts and portfolio totals | No | No | Yes |
@@ -23,6 +24,8 @@
 - Detailed admin portfolio access writes `portfolio.view` with the administrator, target account, and time.
 - Passwords, password hashes, and session tokens are excluded from API responses and audit records.
 - Transaction and watchlist ownership always comes from the authenticated account.
+- A correction route searches only the caller's portfolio, so another user's transaction is returned as not found.
+- Users can void eligible trades but cannot erase ledger history or modify system opening transactions.
 - Cash-event and valuation ownership always comes from the authenticated account.
 - Admin portfolio, transaction, cash, and accounting access remains read-only.
 

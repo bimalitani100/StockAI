@@ -82,7 +82,7 @@ def transaction(
     )
 
 
-def test_fees_cash_and_realized_gain_follow_weighted_average_cost(client: TestClient) -> None:
+def test_fees_cash_and_realized_gain_follow_fifo_cost(client: TestClient) -> None:
     register(client)
     assert cash_event(client, "deposit", 1000).status_code == 201
 
@@ -99,6 +99,32 @@ def test_fees_cash_and_realized_gain_follow_weighted_average_cost(client: TestCl
         "realized_gain": 47.0,
         "trade_fees": 6.0,
     }
+
+
+def test_fifo_realized_gain_consumes_oldest_lots_first(client: TestClient) -> None:
+    register(client)
+    assert cash_event(client, "deposit", 10000).status_code == 201
+    first = transaction(client, "buy", 10, 100, 10)
+    assert first.status_code == 201
+    second = client.post(
+        "/api/v1/portfolio/transactions",
+        json={
+            "transaction_type": "buy",
+            "symbol": "AAPL",
+            "quantity": 10,
+            "price": 200,
+            "fee": 20,
+            "occurred_at": "2026-02-02T12:00:00Z",
+        },
+    )
+    assert second.status_code == 201
+    sale = transaction(client, "sell", 12, 300, 12)
+
+    assert sale.status_code == 201
+    assert sale.json()["accounting"]["realized_gain"] == 2174
+    holding = sale.json()["portfolio"]["holdings"][0]
+    assert holding["quantity"] == 8
+    assert holding["average_cost"] == 202
 
 
 def test_insufficient_cash_rolls_back_buy_and_withdrawal(client: TestClient) -> None:

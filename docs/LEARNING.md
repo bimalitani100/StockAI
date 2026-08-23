@@ -38,7 +38,7 @@ StockAI returns the per-symbol problem and refuses the aggregate claim.
 
 The displayed return is a simple since-inception dollar/percentage result against net contributions.
 It does not adjust for the timing of cash flows. Time-weighted return, money-weighted return, daily
-price snapshots, benchmarks, corporate actions, tax lots, currency conversion, and tax reporting
+price snapshots, benchmarks, corporate actions, currency conversion, and tax reporting
 need additional models and tested rules before they belong in the interface.
 
 ## Concepts introduced by the auto-updating chart
@@ -52,3 +52,24 @@ need additional models and tested rules before they belong in the interface.
 
 The current adapter polls an unofficial development source. A moving interface does not prove the
 underlying data is real-time; delivery method, upstream latency, and licensing are separate concerns.
+
+## Concepts introduced in v0.7
+
+- **Tax lot:** one purchase creates one batch of shares with its own acquisition date and cost.
+- **FIFO:** “first in, first out” means a sale consumes the oldest available lot before newer lots.
+- **Ledger correction:** an incorrect trade is marked void with a reason; it is never silently deleted.
+- **Projection rebuild:** holdings are recalculated from valid historical entries instead of manually edited.
+- **Invariant:** a rule that must always remain true, such as shares and cash never becoming negative.
+- **Safe correction:** StockAI temporarily applies a void, replays the full history, and rolls everything
+  back if any later sale, purchase, or withdrawal becomes impossible.
+
+## FIFO example
+
+1. Buy `10` shares at `$100`.
+2. Buy another `10` shares at `$200`.
+3. Sell `5` shares.
+4. FIFO removes `5` shares from the first `$100` lot.
+5. The open inventory is now `5 × $100` and `10 × $200`, for a `$2,500` remaining cost basis.
+
+FIFO is a deterministic accounting policy, not personalized tax advice. StockAI does not yet support
+specific-lot selection, wash-sale calculations, jurisdiction-specific reporting, or tax filing.

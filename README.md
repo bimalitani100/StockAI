@@ -1,9 +1,9 @@
 # StockAI
 
 StockAI is a production-minded stock research and portfolio-accounting platform built as a
-hands-on software engineering project. Version 0.6 combines cash-backed portfolio accounting,
-role-aware workspaces, auto-updating quotes, and interactive price history on top of append-only
-trade and cash ledgers.
+hands-on software engineering project. Version 0.7 combines cash-backed portfolio accounting,
+history-preserving trade corrections, FIFO tax lots, role-aware workspaces, auto-updating quotes,
+and interactive price history on top of auditable trade and cash ledgers.
 
 This is a development application, not a brokerage, tax engine, or source of investment advice.
 It records user-entered activity and reads provisional development market data; it never executes trades.
@@ -11,11 +11,12 @@ It records user-entered activity and reads provisional development market data; 
 ## What works now
 
 - Registration and server-enforced user/administrator roles.
-- Append-only buy/sell history with chronological share validation.
+- Buy/sell history with chronological share validation and history-preserving corrections.
 - Cash deposits, withdrawals, dividends, and trusted opening funding.
 - Cash-backed purchases and withdrawal protection with atomic rollback.
 - Trade fees included in buy cost basis and deducted from sell proceeds.
-- Weighted-average realized gain and current unrealized gain.
+- FIFO realized gain, remaining lot cost basis, and current unrealized gain.
+- Read-only open tax-lot inventory linked to each source purchase.
 - Live USD valuation, total value, total return, and return rate.
 - Auto-updating stock detail with an interactive 1D-to-MAX price chart.
 - Click-through research from portfolio holdings, watchlist items, and admin holdings.
@@ -27,7 +28,9 @@ It records user-entered activity and reads provisional development market data; 
 
 - `cash balance = cash inflows + sell proceeds − purchases − trade fees − withdrawals`
 - `net contributions = deposits + opening funding − withdrawals`
-- Buy fees increase weighted-average cost; sell fees reduce realized proceeds.
+- Buy fees enter the purchase lot cost; sell fees reduce realized proceeds.
+- FIFO sales consume the oldest open purchase lot first.
+- Voided trades remain visible but no longer affect shares, cash, fees, or gains.
 - `total value = cash balance + current market value of all holdings`
 - `total return = total value − net contributions`
 - Return percentage is shown only when net contributions are positive.
@@ -78,8 +81,8 @@ cd backend
 ./.venv/bin/uvicorn app.main:app --reload --port 8000
 ```
 
-The v0.5 migration adds zero-fee defaults to existing trades and opening funding sufficient to
-cover their historical cash requirement. Existing holdings, transactions, and watchlists remain intact.
+The v0.7 migration adds nullable correction metadata and rebuilds existing holding costs from FIFO
+lots. Existing users, holdings, transactions, cash events, and watchlists remain intact.
 
 Open `http://localhost:8000/docs` for the generated API explorer.
 
@@ -108,7 +111,9 @@ cash because opening funding exactly offsets their historical purchases.
 | `GET` | `/api/v1/portfolio/cash-events` | Signed in | Return the caller's cash ledger |
 | `POST` | `/api/v1/portfolio/cash-events` | Signed in | Record deposit, withdrawal, or dividend |
 | `GET` | `/api/v1/portfolio/valuation` | Signed in | Current USD value and return with completeness status |
+| `GET` | `/api/v1/portfolio/tax-lots` | Signed in | Return the caller's open FIFO lots |
 | `POST` | `/api/v1/portfolio/transactions` | Signed in | Record a cash-validated buy/sell with optional fee |
+| `POST` | `/api/v1/portfolio/transactions/{id}/void` | Signed in | Void the caller's trade with a preserved reason |
 | `GET` | `/api/v1/admin/users/{id}/portfolio` | Admin | Audit and view holdings, trades, cash, and accounting |
 | `GET` | `/api/v1/market-history?symbol=NVDA&range=1d` | Public | Return chart-ready historical prices and range change |
 
@@ -117,7 +122,7 @@ remain available through `/api/v1`.
 
 ## Deliberate limits
 
-Stock splits, mergers, spin-offs, tax-lot selection, short positions, margin, multi-currency
+Stock splits, mergers, spin-offs, specific-lot selection, short positions, margin, multi-currency
 conversion, time-weighted return, and money-weighted return are not modeled yet. StockAI reports a
 simple since-inception return against net contributions—not a tax or institutional performance metric.
 
