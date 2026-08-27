@@ -4,8 +4,23 @@ from sqlalchemy.exc import IntegrityError
 from app.api.dependencies import CurrentUser, DatabaseSession
 from app.core.config import settings
 from app.core.security import create_access_token
-from app.schemas.auth import AuthResponse, LoginRequest, RegisterRequest, UserResponse
-from app.services.auth import authenticate_user, get_user_by_email, register_user
+from app.schemas.auth import (
+    AuthResponse,
+    LoginRequest,
+    PasswordChangeRequest,
+    ProfileUpdateRequest,
+    RegisterRequest,
+    UserResponse,
+)
+from app.services.auth import (
+    CurrentPasswordIncorrectError,
+    PasswordUnchangedError,
+    authenticate_user,
+    change_password,
+    get_user_by_email,
+    register_user,
+    update_profile,
+)
 
 router = APIRouter()
 
@@ -72,3 +87,28 @@ def logout(response: Response) -> None:
 @router.get("/me", response_model=AuthResponse)
 def me(current_user: CurrentUser) -> AuthResponse:
     return AuthResponse(user=UserResponse.model_validate(current_user))
+
+
+@router.patch("/me", response_model=AuthResponse)
+def update_me(
+    request: ProfileUpdateRequest,
+    current_user: CurrentUser,
+    database: DatabaseSession,
+) -> AuthResponse:
+    user = update_profile(database, current_user, request)
+    return AuthResponse(user=UserResponse.model_validate(user))
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+def update_password(
+    request: PasswordChangeRequest,
+    current_user: CurrentUser,
+    database: DatabaseSession,
+) -> None:
+    try:
+        change_password(database, current_user, request)
+    except (CurrentPasswordIncorrectError, PasswordUnchangedError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error

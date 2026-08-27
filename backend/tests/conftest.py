@@ -13,7 +13,7 @@ os.environ["STOCKAI_JWT_SECRET_KEY"] = "test-secret-not-used-outside-tests"
 from app.database.base import Base
 from app.database.session import get_db
 from app.main import app
-from app.models import AdminAuditLog, Holding, Portfolio, User  # noqa: F401
+from app.models import AdminAuditLog, CorporateAction, Holding, Portfolio, User  # noqa: F401
 
 test_engine = create_engine(
     "sqlite+pysqlite://",

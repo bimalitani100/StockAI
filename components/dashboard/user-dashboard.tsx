@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import {
   addToWatchlist,
   getAccounting,
   getCashEvents,
+  getCorporateActions,
   getPortfolio,
   getPortfolioValuation,
   getSession,
@@ -16,9 +17,11 @@ import {
   getWatchlist,
   logout,
   recordCashEvent,
+  recordStockSplit,
   recordTransaction,
   removeFromWatchlist,
   voidTransaction,
+  voidCorporateAction,
 } from "@/lib/auth-api";
 import { ApiRequestError } from "@/lib/api";
 import type { AuthUser } from "@/types/auth";
@@ -26,6 +29,7 @@ import type {
   AccountingSummary,
   CashEvent,
   CashEventType,
+  CorporateAction,
   Portfolio,
   PortfolioTransaction,
   PortfolioValuation,
@@ -53,6 +57,16 @@ function cashEventLabel(type: CashEventType): string {
   return type.replace("_", " ");
 }
 
+function userInitials(fullName: string): string {
+  const initials = fullName
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+  return initials || "U";
+}
+
 export function UserDashboard() {
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -63,6 +77,7 @@ export function UserDashboard() {
   const [cashEvents, setCashEvents] = useState<CashEvent[] | null>(null);
   const [valuation, setValuation] = useState<PortfolioValuation | null>(null);
   const [taxLots, setTaxLots] = useState<TaxLotInventory | null>(null);
+  const [corporateActions, setCorporateActions] = useState<CorporateAction[] | null>(null);
   const [valuationLoading, setValuationLoading] = useState(true);
   const [valuationError, setValuationError] = useState<string | null>(null);
 
@@ -80,10 +95,18 @@ export function UserDashboard() {
   const [watchSymbol, setWatchSymbol] = useState("");
   const [correctingTransactionId, setCorrectingTransactionId] = useState<string | null>(null);
   const [correctionReason, setCorrectionReason] = useState("");
+  const [splitSymbol, setSplitSymbol] = useState("");
+  const [splitNewShares, setSplitNewShares] = useState("2");
+  const [splitOldShares, setSplitOldShares] = useState("1");
+  const [splitOccurredAt, setSplitOccurredAt] = useState(localDateTimeValue);
+  const [correctingActionId, setCorrectingActionId] = useState<string | null>(null);
+  const [actionCorrectionReason, setActionCorrectionReason] = useState("");
 
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     Promise.all([
@@ -94,6 +117,7 @@ export function UserDashboard() {
       getAccounting(),
       getCashEvents(),
       getTaxLots(),
+      getCorporateActions(),
     ])
       .then(([
         session,
@@ -103,6 +127,7 @@ export function UserDashboard() {
         loadedAccounting,
         loadedCashEvents,
         loadedTaxLots,
+        loadedCorporateActions,
       ]) => {
         if (session.user.role === "admin") {
           router.replace("/admin");
@@ -115,6 +140,7 @@ export function UserDashboard() {
         setAccounting(loadedAccounting);
         setCashEvents(loadedCashEvents);
         setTaxLots(loadedTaxLots);
+        setCorporateActions(loadedCorporateActions);
       })
       .catch((requestError: unknown) => {
         if (requestError instanceof ApiRequestError && requestError.status === 401) {
@@ -131,6 +157,27 @@ export function UserDashboard() {
       })
       .finally(() => setValuationLoading(false));
   }, [router]);
+
+  useEffect(() => {
+    if (!profileMenuOpen) return;
+
+    function closeOnOutsideClick(event: PointerEvent) {
+      if (event.target instanceof Node && !profileMenuRef.current?.contains(event.target)) {
+        setProfileMenuOpen(false);
+      }
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setProfileMenuOpen(false);
+    }
+
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [profileMenuOpen]);
 
   async function refreshValuation() {
     setValuationLoading(true);
@@ -228,6 +275,64 @@ export function UserDashboard() {
     }
   }
 
+  async function handleStockSplitSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await recordStockSplit(
+        splitSymbol.trim().toUpperCase(),
+        Number(splitNewShares),
+        Number(splitOldShares),
+        new Date(splitOccurredAt).toISOString(),
+      );
+      setPortfolio(result.portfolio);
+      const [loadedActions, loadedTaxLots] = await Promise.all([
+        getCorporateActions(),
+        getTaxLots(),
+      ]);
+      setCorporateActions(loadedActions);
+      setTaxLots(loadedTaxLots);
+      setNotice(`${result.corporate_action.new_shares}-for-${result.corporate_action.old_shares} split recorded for ${result.corporate_action.symbol}.`);
+      setSplitSymbol("");
+      setSplitNewShares("2");
+      setSplitOldShares("1");
+      await refreshValuation();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to record stock split.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleCorporateActionCorrection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!correctingActionId) return;
+
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await voidCorporateAction(correctingActionId, actionCorrectionReason);
+      setPortfolio(result.portfolio);
+      const [loadedActions, loadedTaxLots] = await Promise.all([
+        getCorporateActions(),
+        getTaxLots(),
+      ]);
+      setCorporateActions(loadedActions);
+      setTaxLots(loadedTaxLots);
+      setCorrectingActionId(null);
+      setActionCorrectionReason("");
+      setNotice(`The ${result.corporate_action.symbol} split was voided; its original record was preserved.`);
+      await refreshValuation();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to correct stock split.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleWatchlistSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -254,7 +359,7 @@ export function UserDashboard() {
     router.refresh();
   }
 
-  if (!user || !portfolio || !transactions || !watchlist || !accounting || !cashEvents || !taxLots) {
+  if (!user || !portfolio || !transactions || !watchlist || !accounting || !cashEvents || !taxLots || !corporateActions) {
     return <main className="portal-loading">{error ?? "Loading your StockAI workspace…"}</main>;
   }
 
@@ -268,16 +373,42 @@ export function UserDashboard() {
   return (
     <main className="portal-shell">
       <aside className="portal-sidebar">
-        <Link className="portal-brand" href="/dashboard">StockAI <small>v0.7 development</small></Link>
+        <Link className="portal-brand" href="/dashboard">StockAI <small>v0.8 development</small></Link>
         <nav>
           <a className="active" href="#overview">Performance</a>
           <a href="#cash">Cash</a>
           <a href="#transactions">Transactions</a>
+          <a href="#corporate-actions">Stock splits</a>
           <a href="#holdings">Holdings</a>
           <a href="#watchlist">Watchlist</a>
           <Link href="/market">Market search</Link>
         </nav>
-        <button className="text-action" onClick={handleLogout}>Sign out</button>
+        <div className="sidebar-profile-wrap" ref={profileMenuRef}>
+          {profileMenuOpen && (
+            <div className="sidebar-profile-menu" role="menu" aria-label="Account options">
+              <Link role="menuitem" href="/settings" onClick={() => setProfileMenuOpen(false)}>
+                <strong>Settings</strong>
+                <small>Profile and password</small>
+              </Link>
+              <button role="menuitem" type="button" onClick={handleLogout}>Sign out</button>
+            </div>
+          )}
+          <button
+            className="sidebar-profile"
+            type="button"
+            aria-label="Open account menu"
+            aria-haspopup="menu"
+            aria-expanded={profileMenuOpen}
+            onClick={() => setProfileMenuOpen((isOpen) => !isOpen)}
+          >
+            <span className="profile-avatar" aria-hidden="true">{userInitials(user.full_name)}</span>
+            <span className="profile-details">
+              <strong>{user.full_name}</strong>
+              <small title={user.email}>{user.email}</small>
+            </span>
+            <span className="profile-chevron" aria-hidden="true">{profileMenuOpen ? "×" : "•••"}</span>
+          </button>
+        </div>
       </aside>
 
       <section className="portal-content">
@@ -343,6 +474,76 @@ export function UserDashboard() {
           </form>
         </section>
 
+        <section className="portal-panel" id="corporate-actions">
+          <div className="panel-heading">
+            <div>
+              <span className="kicker">CORPORATE-ACTION LEDGER</span>
+              <h2>Record a stock split</h2>
+              <p>A 2-for-1 split doubles shares and halves cost per share without changing total cost or cash.</p>
+            </div>
+          </div>
+          <form className="holding-form split-form" onSubmit={handleStockSplitSubmit}>
+            <label>Symbol<input value={splitSymbol} onChange={(event) => setSplitSymbol(event.target.value)} placeholder="AAPL" maxLength={10} required /></label>
+            <label>New shares<input type="number" min="1" step="1" value={splitNewShares} onChange={(event) => setSplitNewShares(event.target.value)} required /></label>
+            <label>For old shares<input type="number" min="1" step="1" value={splitOldShares} onChange={(event) => setSplitOldShares(event.target.value)} required /></label>
+            <label>Effective date and time<input type="datetime-local" value={splitOccurredAt} onChange={(event) => setSplitOccurredAt(event.target.value)} required /></label>
+            <button className="primary-action" type="submit" disabled={saving}>{saving ? "Recording…" : "Record split"}</button>
+          </form>
+          <div className="split-guide" role="note">
+            <strong>{splitNewShares || "?"}-for-{splitOldShares || "?"}</strong>
+            <div>
+              <span>{Number(splitNewShares) >= Number(splitOldShares) ? "Forward split: share quantity increases." : "Reverse split: share quantity decreases."}</span>
+              <small> Use the company&apos;s official effective date. StockAI currently rejects splits that require unsupported fractional-share rounding.</small>
+            </div>
+          </div>
+          {corporateActions.length ? (
+            <div className="transaction-list corporate-action-list">
+              {corporateActions.map((action) => (
+                <article className={action.voided_at ? "is-voided" : undefined} key={action.id}>
+                  <span className="transaction-type stock-split">Split</span>
+                  <strong>{action.symbol}</strong>
+                  <span>
+                    {action.new_shares}-for-{action.old_shares} ({action.ratio.toLocaleString()}× shares)
+                    {action.voided_at && <small>Voided: {action.void_reason}</small>}
+                  </span>
+                  <div className="transaction-actions">
+                    <time>{new Date(action.occurred_at).toLocaleDateString()}</time>
+                    {!action.voided_at && (
+                      <button
+                        className="table-action"
+                        type="button"
+                        onClick={() => {
+                          setCorrectingActionId(action.id);
+                          setActionCorrectionReason("");
+                        }}
+                      >
+                        Correct
+                      </button>
+                    )}
+                  </div>
+                  {correctingActionId === action.id && (
+                    <form className="correction-form" onSubmit={handleCorporateActionCorrection}>
+                      <label>
+                        Why is this split incorrect?
+                        <input
+                          value={actionCorrectionReason}
+                          onChange={(event) => setActionCorrectionReason(event.target.value)}
+                          minLength={3}
+                          maxLength={500}
+                          required
+                        />
+                      </label>
+                      <p>The record remains visible, but it stops adjusting shares and cost basis.</p>
+                      <button className="danger-action" type="submit" disabled={saving}>Void split</button>
+                      <button className="table-action" type="button" onClick={() => setCorrectingActionId(null)}>Cancel</button>
+                    </form>
+                  )}
+                </article>
+              ))}
+            </div>
+          ) : <p className="panel-empty">No stock splits recorded yet.</p>}
+        </section>
+
         <section className="portal-panel" id="holdings">
           <div className="panel-heading"><div><span className="kicker">CALCULATED SNAPSHOT</span><h2>Portfolio holdings</h2><p>Read-only positions derived from your transaction ledger.</p></div></div>
           {portfolio.holdings.length ? (
@@ -364,13 +565,14 @@ export function UserDashboard() {
           {taxLots.lots.length ? (
             <div className="data-table-wrap">
               <table className="data-table">
-                <thead><tr><th>Symbol</th><th>Acquired</th><th>Original shares</th><th>Remaining</th><th>Cost/share</th><th>Open cost basis</th></tr></thead>
+                <thead><tr><th>Symbol</th><th>Acquired</th><th>Original shares</th><th>Split-adjusted</th><th>Remaining</th><th>Cost/share</th><th>Open cost basis</th></tr></thead>
                 <tbody>
                   {taxLots.lots.map((lot) => (
                     <tr key={lot.source_transaction_id}>
                       <td><Link className="ticker-link" href={`/market?symbol=${encodeURIComponent(lot.symbol)}`}>{lot.symbol}</Link></td>
                       <td>{new Date(lot.acquired_at).toLocaleDateString()}</td>
                       <td>{lot.original_quantity.toLocaleString()}</td>
+                      <td>{lot.adjusted_quantity.toLocaleString()}</td>
                       <td>{lot.remaining_quantity.toLocaleString()}</td>
                       <td>{money(lot.cost_per_share)}</td>
                       <td>{money(lot.cost_basis)}</td>

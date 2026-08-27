@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.audit import AdminAuditLog
+from app.models.corporate_action import CorporateAction, CorporateActionType
 from app.models.portfolio import Holding, Portfolio
 from app.models.transaction import PortfolioTransaction, TransactionType
 from app.models.user import User
@@ -14,10 +15,14 @@ from app.schemas.portfolio import (
     AdminPortfolioResponse,
     AdminUserSummary,
     AuditLogResponse,
+    CorporateActionCorrectionResponse,
+    CorporateActionCreateResponse,
+    CorporateActionResponse,
     HoldingResponse,
     PortfolioResponse,
     TaxLotInventoryResponse,
     TaxLotResponse,
+    StockSplitCreateRequest,
     TransactionCorrectionRequest,
     TransactionCorrectionResponse,
     TransactionCreateRequest,
@@ -30,7 +35,11 @@ from app.services.accounting import (
     list_cash_events,
     validate_cash_timeline,
 )
-from app.services.ledger import InsufficientSharesError, calculate_position
+from app.services.ledger import (
+    CorporateActionReplayError,
+    InsufficientSharesError,
+    calculate_position,
+)
 
 ZERO = Decimal("0")
 
@@ -40,6 +49,14 @@ class TransactionNotFoundError(LookupError):
 
 
 class TransactionNotCorrectableError(ValueError):
+    pass
+
+
+class CorporateActionNotFoundError(LookupError):
+    pass
+
+
+class CorporateActionNotCorrectableError(ValueError):
     pass
 
 
@@ -84,6 +101,22 @@ def _transaction_response(transaction: PortfolioTransaction) -> TransactionRespo
         occurred_at=transaction.occurred_at,
         voided_at=transaction.voided_at,
         void_reason=transaction.void_reason,
+    )
+
+
+def _corporate_action_response(action: CorporateAction) -> CorporateActionResponse:
+    new_shares = float(action.new_shares)
+    old_shares = float(action.old_shares)
+    return CorporateActionResponse(
+        id=action.id,
+        action_type=action.action_type,
+        symbol=action.symbol,
+        new_shares=new_shares,
+        old_shares=old_shares,
+        ratio=round(new_shares / old_shares, 6),
+        occurred_at=action.occurred_at,
+        voided_at=action.voided_at,
+        void_reason=action.void_reason,
     )
 
 
@@ -139,6 +172,42 @@ def list_user_transactions(
     ]
 
 
+def _corporate_actions_for_portfolio(
+    database: Session,
+    portfolio_id: UUID,
+    *,
+    include_voided: bool = True,
+    limit: int | None = None,
+) -> list[CorporateAction]:
+    statement = select(CorporateAction).where(CorporateAction.portfolio_id == portfolio_id)
+    if not include_voided:
+        statement = statement.where(CorporateAction.voided_at.is_(None))
+    statement = statement.order_by(
+        CorporateAction.occurred_at.desc(),
+        CorporateAction.created_at.desc(),
+    )
+    if limit is not None:
+        statement = statement.limit(limit)
+    return list(database.scalars(statement))
+
+
+def list_user_corporate_actions(
+    database: Session,
+    user: User,
+    *,
+    limit: int = 100,
+) -> list[CorporateActionResponse]:
+    portfolio = get_primary_portfolio(database, user.id)
+    return [
+        _corporate_action_response(action)
+        for action in _corporate_actions_for_portfolio(
+            database,
+            portfolio.id,
+            limit=limit,
+        )
+    ]
+
+
 def _rebuild_symbol_holding(database: Session, portfolio: Portfolio, symbol: str) -> None:
     transactions = list(
         database.scalars(
@@ -154,7 +223,16 @@ def _rebuild_symbol_holding(database: Session, portfolio: Portfolio, symbol: str
             )
         )
     )
-    position = calculate_position(symbol, transactions)
+    corporate_actions = _corporate_actions_for_portfolio(
+        database,
+        portfolio.id,
+        include_voided=False,
+    )
+    position = calculate_position(
+        symbol,
+        transactions,
+        [action for action in corporate_actions if action.symbol == symbol],
+    )
 
     holding = database.scalar(
         select(Holding).where(
@@ -203,7 +281,11 @@ def record_transaction(
         _rebuild_symbol_holding(database, portfolio, transaction.symbol)
         validate_cash_timeline(database, portfolio.id)
         database.commit()
-    except (InsufficientCashError, InsufficientSharesError):
+    except (
+        CorporateActionReplayError,
+        InsufficientCashError,
+        InsufficientSharesError,
+    ):
         database.rollback()
         raise
 
@@ -231,10 +313,16 @@ def get_user_tax_lots(database: Session, user: User) -> TaxLotInventoryResponse:
         )
     )
     lots: list[TaxLotResponse] = []
+    corporate_actions = _corporate_actions_for_portfolio(
+        database,
+        portfolio.id,
+        include_voided=False,
+    )
     for symbol in sorted({transaction.symbol for transaction in transactions}):
         position = calculate_position(
             symbol,
             [transaction for transaction in transactions if transaction.symbol == symbol],
+            [action for action in corporate_actions if action.symbol == symbol],
         )
         lots.extend(
             TaxLotResponse(
@@ -242,6 +330,7 @@ def get_user_tax_lots(database: Session, user: User) -> TaxLotInventoryResponse:
                 symbol=symbol,
                 acquired_at=lot.acquired_at,
                 original_quantity=float(lot.original_quantity),
+                adjusted_quantity=float(lot.adjusted_quantity),
                 remaining_quantity=float(lot.remaining_quantity),
                 cost_per_share=round(float(lot.cost_per_share), 4),
                 cost_basis=round(float(lot.remaining_quantity * lot.cost_per_share), 2),
@@ -249,6 +338,79 @@ def get_user_tax_lots(database: Session, user: User) -> TaxLotInventoryResponse:
             for lot in position.lots
         )
     return TaxLotInventoryResponse(lots=lots)
+
+
+def record_stock_split(
+    database: Session,
+    user: User,
+    request: StockSplitCreateRequest,
+) -> CorporateActionCreateResponse:
+    portfolio = get_primary_portfolio(database, user.id)
+    database.scalar(select(Portfolio.id).where(Portfolio.id == portfolio.id).with_for_update())
+    occurred_at = request.occurred_at or datetime.now(UTC)
+    if occurred_at.tzinfo is None:
+        occurred_at = occurred_at.replace(tzinfo=UTC)
+    else:
+        occurred_at = occurred_at.astimezone(UTC)
+
+    action = CorporateAction(
+        portfolio_id=portfolio.id,
+        action_type=CorporateActionType.STOCK_SPLIT,
+        symbol=request.symbol.strip().upper(),
+        new_shares=Decimal(str(request.new_shares)),
+        old_shares=Decimal(str(request.old_shares)),
+        occurred_at=occurred_at,
+    )
+    database.add(action)
+    try:
+        database.flush()
+        _rebuild_symbol_holding(database, portfolio, action.symbol)
+        database.commit()
+    except (CorporateActionReplayError, InsufficientSharesError):
+        database.rollback()
+        raise
+
+    database.refresh(action)
+    return CorporateActionCreateResponse(
+        corporate_action=_corporate_action_response(action),
+        portfolio=_portfolio_response(get_primary_portfolio(database, user.id)),
+    )
+
+
+def void_corporate_action(
+    database: Session,
+    user: User,
+    action_id: UUID,
+    request: TransactionCorrectionRequest,
+) -> CorporateActionCorrectionResponse:
+    portfolio = get_primary_portfolio(database, user.id)
+    database.scalar(select(Portfolio.id).where(Portfolio.id == portfolio.id).with_for_update())
+    action = database.scalar(
+        select(CorporateAction).where(
+            CorporateAction.id == action_id,
+            CorporateAction.portfolio_id == portfolio.id,
+        )
+    )
+    if action is None:
+        raise CorporateActionNotFoundError
+    if action.voided_at is not None:
+        raise CorporateActionNotCorrectableError("This corporate action has already been voided.")
+
+    action.voided_at = datetime.now(UTC)
+    action.void_reason = request.reason
+    try:
+        database.flush()
+        _rebuild_symbol_holding(database, portfolio, action.symbol)
+        database.commit()
+    except (CorporateActionReplayError, InsufficientSharesError):
+        database.rollback()
+        raise
+
+    database.refresh(action)
+    return CorporateActionCorrectionResponse(
+        corporate_action=_corporate_action_response(action),
+        portfolio=_portfolio_response(get_primary_portfolio(database, user.id)),
+    )
 
 
 def void_transaction(
@@ -279,7 +441,11 @@ def void_transaction(
         _rebuild_symbol_holding(database, portfolio, transaction.symbol)
         validate_cash_timeline(database, portfolio.id)
         database.commit()
-    except (InsufficientCashError, InsufficientSharesError):
+    except (
+        CorporateActionReplayError,
+        InsufficientCashError,
+        InsufficientSharesError,
+    ):
         database.rollback()
         raise
 
@@ -325,6 +491,7 @@ def view_user_portfolio_as_admin(
     portfolio = get_primary_portfolio(database, target.id)
     transactions = _transactions_for_portfolio(database, portfolio.id, limit=100)
     cash_events = list_cash_events(database, portfolio.id, limit=100)
+    corporate_actions = _corporate_actions_for_portfolio(database, portfolio.id, limit=100)
     accounting = calculate_accounting_summary(database, portfolio.id)
     audited_at = datetime.now(UTC)
     database.add(
@@ -342,6 +509,7 @@ def view_user_portfolio_as_admin(
         transactions=[_transaction_response(transaction) for transaction in transactions],
         cash_events=cash_events,
         accounting=accounting,
+        corporate_actions=[_corporate_action_response(action) for action in corporate_actions],
         audited_at=audited_at,
     )
 

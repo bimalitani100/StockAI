@@ -16,12 +16,13 @@ test("production build contains the StockAI foundation", async () => {
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|vinext/);
 });
 
-test("production build includes v0.7 account and role workspaces", async () => {
-  const [login, register, dashboard, admin] = await Promise.all([
+test("production build includes v0.8 account and role workspaces", async () => {
+  const [login, register, dashboard, admin, settings] = await Promise.all([
     readFile(new URL("../.next/server/app/login.html", import.meta.url), "utf8"),
     readFile(new URL("../.next/server/app/register.html", import.meta.url), "utf8"),
     readFile(new URL("../.next/server/app/dashboard.html", import.meta.url), "utf8"),
     readFile(new URL("../.next/server/app/admin.html", import.meta.url), "utf8"),
+    readFile(new URL("../.next/server/app/settings.html", import.meta.url), "utf8"),
   ]);
 
   assert.match(login, /Sign in \| StockAI/);
@@ -29,4 +30,5 @@ test("production build includes v0.7 account and role workspaces", async () => {
   assert.match(register, /Create account \| StockAI/);
   assert.match(dashboard, /Portfolio performance \| StockAI/);
   assert.match(admin, /Administration \| StockAI/);
+  assert.match(settings, /Account settings \| StockAI/);
 });

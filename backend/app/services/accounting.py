@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.cash_event import CashEvent, CashEventType
+from app.models.corporate_action import CorporateAction
 from app.models.portfolio import Portfolio
 from app.models.transaction import PortfolioTransaction, TransactionType
 from app.providers.market import MarketDataError, MarketDataProvider
@@ -59,6 +60,19 @@ def _all_cash_events(database: Session, portfolio_id: UUID) -> list[CashEvent]:
             select(CashEvent)
             .where(CashEvent.portfolio_id == portfolio_id)
             .order_by(CashEvent.occurred_at, CashEvent.created_at)
+        )
+    )
+
+
+def _all_corporate_actions(database: Session, portfolio_id: UUID) -> list[CorporateAction]:
+    return list(
+        database.scalars(
+            select(CorporateAction)
+            .where(
+                CorporateAction.portfolio_id == portfolio_id,
+                CorporateAction.voided_at.is_(None),
+            )
+            .order_by(CorporateAction.occurred_at, CorporateAction.created_at)
         )
     )
 
@@ -119,6 +133,7 @@ def calculate_accounting_summary(
     portfolio_id: UUID,
 ) -> AccountingSummaryResponse:
     transactions = _all_transactions(database, portfolio_id)
+    corporate_actions = _all_corporate_actions(database, portfolio_id)
     cash_events = _all_cash_events(database, portfolio_id)
     cash_balance = sum((_transaction_cash_delta(item) for item in transactions), ZERO)
     cash_balance += sum((_cash_event_delta(item) for item in cash_events), ZERO)
@@ -140,10 +155,18 @@ def calculate_accounting_summary(
     trade_fees = sum((transaction.fee for transaction in transactions), ZERO)
 
     realized_gain = ZERO
-    symbols = sorted({transaction.symbol for transaction in transactions})
+    symbols = sorted(
+        {transaction.symbol for transaction in transactions}
+        | {action.symbol for action in corporate_actions}
+    )
     for symbol in symbols:
         symbol_transactions = [item for item in transactions if item.symbol == symbol]
-        realized_gain += calculate_position(symbol, symbol_transactions).realized_gain
+        symbol_actions = [item for item in corporate_actions if item.symbol == symbol]
+        realized_gain += calculate_position(
+            symbol,
+            symbol_transactions,
+            symbol_actions,
+        ).realized_gain
 
     return AccountingSummaryResponse(
         cash_balance=round(float(cash_balance), 2),

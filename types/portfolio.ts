@@ -45,6 +45,7 @@ export interface TaxLot {
   symbol: string;
   acquired_at: string;
   original_quantity: number;
+  adjusted_quantity: number;
   remaining_quantity: number;
   cost_per_share: number;
   cost_basis: number;
@@ -54,6 +55,27 @@ export interface TaxLotInventory {
   policy: "fifo";
   lots: TaxLot[];
 }
+
+export type CorporateActionType = "stock_split";
+
+export interface CorporateAction {
+  id: string;
+  action_type: CorporateActionType;
+  symbol: string;
+  new_shares: number;
+  old_shares: number;
+  ratio: number;
+  occurred_at: string;
+  voided_at: string | null;
+  void_reason: string | null;
+}
+
+export interface CorporateActionCreateResult {
+  corporate_action: CorporateAction;
+  portfolio: Portfolio;
+}
+
+export type CorporateActionCorrectionResult = CorporateActionCreateResult;
 
 export type CashEventType = "deposit" | "withdrawal" | "dividend" | "opening_balance";
 
@@ -127,6 +149,7 @@ export interface AdminPortfolioView {
   transactions: PortfolioTransaction[];
   cash_events: CashEvent[];
   accounting: AccountingSummary;
+  corporate_actions: CorporateAction[];
   audited_at: string;
 }
 

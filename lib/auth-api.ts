@@ -8,6 +8,9 @@ import type {
   CashEvent,
   CashEventCreateResult,
   CashEventType,
+  CorporateAction,
+  CorporateActionCorrectionResult,
+  CorporateActionCreateResult,
   Portfolio,
   PortfolioValuation,
   PortfolioTransaction,
@@ -40,6 +43,23 @@ export function getSession(): Promise<AuthResponse> {
   return apiRequest<AuthResponse>("/api/v1/auth/me");
 }
 
+export function updateProfile(fullName: string): Promise<AuthResponse> {
+  return apiRequest<AuthResponse>("/api/v1/auth/me", {
+    method: "PATCH",
+    body: JSON.stringify({ full_name: fullName }),
+  });
+}
+
+export function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  return apiRequest<void>("/api/v1/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  });
+}
+
 export function getPortfolio(): Promise<Portfolio> {
   return apiRequest<Portfolio>("/api/v1/portfolio");
 }
@@ -50,6 +70,40 @@ export function getTransactions(): Promise<PortfolioTransaction[]> {
 
 export function getTaxLots(): Promise<TaxLotInventory> {
   return apiRequest<TaxLotInventory>("/api/v1/portfolio/tax-lots");
+}
+
+export function getCorporateActions(): Promise<CorporateAction[]> {
+  return apiRequest<CorporateAction[]>("/api/v1/portfolio/corporate-actions");
+}
+
+export function recordStockSplit(
+  symbol: string,
+  newShares: number,
+  oldShares: number,
+  occurredAt: string,
+): Promise<CorporateActionCreateResult> {
+  return apiRequest<CorporateActionCreateResult>("/api/v1/portfolio/corporate-actions/stock-splits", {
+    method: "POST",
+    body: JSON.stringify({
+      symbol,
+      new_shares: newShares,
+      old_shares: oldShares,
+      occurred_at: occurredAt,
+    }),
+  });
+}
+
+export function voidCorporateAction(
+  actionId: string,
+  reason: string,
+): Promise<CorporateActionCorrectionResult> {
+  return apiRequest<CorporateActionCorrectionResult>(
+    `/api/v1/portfolio/corporate-actions/${encodeURIComponent(actionId)}/void`,
+    {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    },
+  );
 }
 
 export function recordTransaction(

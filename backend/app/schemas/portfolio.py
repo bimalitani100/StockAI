@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.cash_event import CashEventType
+from app.models.corporate_action import CorporateActionType
 from app.models.transaction import TransactionType
 from app.schemas.auth import UserResponse
 
@@ -65,6 +66,7 @@ class TaxLotResponse(BaseModel):
     symbol: str
     acquired_at: datetime
     original_quantity: float
+    adjusted_quantity: float
     remaining_quantity: float
     cost_per_share: float
     cost_basis: float
@@ -73,6 +75,41 @@ class TaxLotResponse(BaseModel):
 class TaxLotInventoryResponse(BaseModel):
     policy: Literal["fifo"] = "fifo"
     lots: list[TaxLotResponse]
+
+
+class StockSplitCreateRequest(BaseModel):
+    symbol: str = Field(min_length=1, max_length=10, pattern=r"^[A-Za-z][A-Za-z0-9.-]*$")
+    new_shares: int = Field(gt=0, le=1_000_000)
+    old_shares: int = Field(gt=0, le=1_000_000)
+    occurred_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def split_must_change_share_count(self):
+        if self.new_shares == self.old_shares:
+            raise ValueError("A stock split must change the number of shares.")
+        return self
+
+
+class CorporateActionResponse(BaseModel):
+    id: UUID
+    action_type: CorporateActionType
+    symbol: str
+    new_shares: float
+    old_shares: float
+    ratio: float
+    occurred_at: datetime
+    voided_at: datetime | None
+    void_reason: str | None
+
+
+class CorporateActionCreateResponse(BaseModel):
+    corporate_action: CorporateActionResponse
+    portfolio: PortfolioResponse
+
+
+class CorporateActionCorrectionResponse(BaseModel):
+    corporate_action: CorporateActionResponse
+    portfolio: PortfolioResponse
 
 
 class CashEventCreateRequest(BaseModel):
@@ -163,6 +200,7 @@ class AdminPortfolioResponse(BaseModel):
     transactions: list[TransactionResponse]
     cash_events: list[CashEventResponse]
     accounting: AccountingSummaryResponse
+    corporate_actions: list[CorporateActionResponse]
     audited_at: datetime
 
 
