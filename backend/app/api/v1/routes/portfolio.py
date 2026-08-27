@@ -11,9 +11,13 @@ from app.schemas.portfolio import (
     CashEventCreateRequest,
     CashEventCreateResponse,
     CashEventResponse,
+    CorporateActionCorrectionResponse,
+    CorporateActionCreateResponse,
+    CorporateActionResponse,
     PortfolioResponse,
     PortfolioValuationResponse,
     TaxLotInventoryResponse,
+    StockSplitCreateRequest,
     TransactionCorrectionRequest,
     TransactionCorrectionResponse,
     TransactionCreateRequest,
@@ -27,15 +31,20 @@ from app.services.accounting import (
     list_cash_events,
     record_cash_event,
 )
-from app.services.ledger import InsufficientSharesError
+from app.services.ledger import CorporateActionReplayError, InsufficientSharesError
 from app.services.portfolio import (
+    CorporateActionNotCorrectableError,
+    CorporateActionNotFoundError,
     TransactionNotCorrectableError,
     TransactionNotFoundError,
     get_primary_portfolio,
     get_user_portfolio,
     get_user_tax_lots,
+    list_user_corporate_actions,
     list_user_transactions,
     record_transaction,
+    record_stock_split,
+    void_corporate_action,
     void_transaction,
 )
 
@@ -110,6 +119,31 @@ def tax_lots(
     return get_user_tax_lots(database, current_user)
 
 
+@router.get("/corporate-actions", response_model=list[CorporateActionResponse])
+def corporate_actions(
+    current_user: CurrentUser,
+    database: DatabaseSession,
+    limit: Annotated[int, Query(ge=1, le=250)] = 100,
+) -> list[CorporateActionResponse]:
+    return list_user_corporate_actions(database, current_user, limit=limit)
+
+
+@router.post(
+    "/corporate-actions/stock-splits",
+    response_model=CorporateActionCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_stock_split(
+    request: StockSplitCreateRequest,
+    current_user: CurrentUser,
+    database: DatabaseSession,
+) -> CorporateActionCreateResponse:
+    try:
+        return record_stock_split(database, current_user, request)
+    except (CorporateActionReplayError, InsufficientSharesError) as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+
 @router.post(
     "/transactions",
     response_model=TransactionCreateResponse,
@@ -122,7 +156,11 @@ def create_transaction(
 ) -> TransactionCreateResponse:
     try:
         return record_transaction(database, current_user, request)
-    except (InsufficientCashError, InsufficientSharesError) as error:
+    except (
+        CorporateActionReplayError,
+        InsufficientCashError,
+        InsufficientSharesError,
+    ) as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
 
@@ -143,5 +181,35 @@ def correct_transaction(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Transaction not found.",
         ) from error
-    except (TransactionNotCorrectableError, InsufficientCashError, InsufficientSharesError) as error:
+    except (
+        CorporateActionReplayError,
+        TransactionNotCorrectableError,
+        InsufficientCashError,
+        InsufficientSharesError,
+    ) as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+
+@router.post(
+    "/corporate-actions/{action_id}/void",
+    response_model=CorporateActionCorrectionResponse,
+)
+def correct_corporate_action(
+    action_id: UUID,
+    request: TransactionCorrectionRequest,
+    current_user: CurrentUser,
+    database: DatabaseSession,
+) -> CorporateActionCorrectionResponse:
+    try:
+        return void_corporate_action(database, current_user, action_id, request)
+    except CorporateActionNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Corporate action not found.",
+        ) from error
+    except (
+        CorporateActionNotCorrectableError,
+        CorporateActionReplayError,
+        InsufficientSharesError,
+    ) as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error

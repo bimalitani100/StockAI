@@ -134,6 +134,12 @@ export function AdminDashboard() {
                 {selected.transactions.map((transaction) => <tr key={transaction.id}><td>{transaction.transaction_type.replace("_", " ")}</td><td><strong>{transaction.symbol}</strong></td><td>{transaction.quantity}</td><td>${transaction.price.toFixed(2)}</td><td>${transaction.fee.toFixed(2)}</td><td>{new Date(transaction.occurred_at).toLocaleDateString()}</td><td>{transaction.voided_at ? <span className="voided-label">Voided<small>{transaction.void_reason}</small></span> : "Active"}</td></tr>)}
               </tbody></table></div>
             ) : <p className="panel-empty">This user has no recorded transactions.</p>}
+            <h3 className="subsection-title">Corporate-action history</h3>
+            {selected.corporate_actions.length ? (
+              <div className="data-table-wrap"><table className="data-table"><thead><tr><th>Action</th><th>Symbol</th><th>Terms</th><th>Effective date</th><th>Status</th></tr></thead><tbody>
+                {selected.corporate_actions.map((action) => <tr key={action.id}><td>{action.action_type.replace("_", " ")}</td><td><strong>{action.symbol}</strong></td><td>{action.new_shares}-for-{action.old_shares}</td><td>{new Date(action.occurred_at).toLocaleDateString()}</td><td>{action.voided_at ? <span className="voided-label">Voided<small>{action.void_reason}</small></span> : "Active"}</td></tr>)}
+              </tbody></table></div>
+            ) : <p className="panel-empty">This user has no recorded corporate actions.</p>}
             <h3 className="subsection-title">Cash history</h3>
             {selected.cash_events.length ? (
               <div className="data-table-wrap"><table className="data-table"><thead><tr><th>Activity</th><th>Amount</th><th>Symbol</th><th>Date</th></tr></thead><tbody>

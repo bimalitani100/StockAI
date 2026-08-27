@@ -12,6 +12,7 @@ from app.database.base import Base
 
 if TYPE_CHECKING:
     from app.models.cash_event import CashEvent
+    from app.models.corporate_action import CorporateAction
     from app.models.transaction import PortfolioTransaction
     from app.models.user import User
 
@@ -38,6 +39,10 @@ class Portfolio(Base):
         cascade="all, delete-orphan",
     )
     cash_events: Mapped[list[CashEvent]] = relationship(
+        back_populates="portfolio",
+        cascade="all, delete-orphan",
+    )
+    corporate_actions: Mapped[list[CorporateAction]] = relationship(
         back_populates="portfolio",
         cascade="all, delete-orphan",
     )

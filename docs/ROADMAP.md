@@ -25,7 +25,7 @@
 - Visibility-aware polling that pauses background-tab requests
 - GitHub Actions checks for frontend, backend, migrations, PostgreSQL, and Compose configuration
 
-## v0.7 — Portfolio accuracy (current)
+## v0.7 — Portfolio accuracy (complete)
 
 - History-preserving trade corrections with a required reason
 - Full ledger replay before accepting a correction
@@ -34,12 +34,22 @@
 - Data-preserving migration from weighted-average holdings
 - User correction controls and audited admin visibility
 
+## v0.8 — Corporate actions (current)
+
+- Separate user-owned corporate-action ledger
+- Forward and reverse stock-split replay across FIFO lots
+- Total cost-basis and cash preservation through splits
+- History-preserving stock-split corrections with full safety replay
+- Read-only audited administrator visibility
+- Explicit rejection when fractional shares exceed supported precision
+
 ## Candidate next milestones
 
-- **v0.8:** stock splits first, then explicit rules for mergers and spin-offs
-- **v0.9:** time-weighted/money-weighted portfolio returns, persisted price snapshots, and benchmark comparison
-- **v0.10:** email verification, recovery, throttling, privileged MFA, and managed identity evaluation
-- **v0.11:** reproducible analytics and model evaluation before predictive UI
+- **v0.9:** original visual redesign with a lively homepage, intentional motion, responsive dashboards, and a stronger non-template identity
+- **v0.10:** time-weighted/money-weighted portfolio returns, persisted price snapshots, and benchmark comparison
+- **v0.11:** explicit merger, spin-off, and fractional cash-in-lieu rules
+- **v0.12:** email verification, recovery, throttling, privileged MFA, and managed identity evaluation
+- **v0.13:** reproducible analytics and model evaluation before predictive UI
 - **Later:** full-stack containers, deployment automation, observability, and AWS after runtime requirements are measured
 
 Versions represent tested outcomes, not dates. Accounting completeness and reproducible market

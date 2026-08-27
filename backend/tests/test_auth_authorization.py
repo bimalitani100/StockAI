@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -8,6 +9,7 @@ from app.core.security import hash_password
 from app.main import app
 from app.models.audit import AdminAuditLog
 from app.models.cash_event import CashEvent, CashEventType
+from app.models.corporate_action import CorporateAction, CorporateActionType
 from app.models.portfolio import Holding, Portfolio
 from app.models.transaction import PortfolioTransaction, TransactionType
 from app.models.user import User, UserRole
@@ -102,8 +104,8 @@ def test_admin_can_view_all_user_holdings_and_access_is_audited(database: Sessio
         Holding(
             portfolio_id=portfolio.id,
             symbol="NVDA",
-            quantity=Decimal("6"),
-            average_cost=Decimal("140.50"),
+            quantity=Decimal("12"),
+            average_cost=Decimal("70.25"),
         )
     )
     database.add(
@@ -124,6 +126,16 @@ def test_admin_can_view_all_user_holdings_and_access_is_audited(database: Sessio
             occurred_at=target.created_at,
         )
     )
+    database.add(
+        CorporateAction(
+            portfolio_id=portfolio.id,
+            symbol="NVDA",
+            action_type=CorporateActionType.STOCK_SPLIT,
+            new_shares=Decimal("2"),
+            old_shares=Decimal("1"),
+            occurred_at=target.created_at + timedelta(days=1),
+        )
+    )
     database.commit()
 
     with TestClient(app) as admin_client:
@@ -141,6 +153,7 @@ def test_admin_can_view_all_user_holdings_and_access_is_audited(database: Sessio
     assert portfolio_response.status_code == 200
     assert portfolio_response.json()["portfolio"]["holdings"][0]["symbol"] == "NVDA"
     assert portfolio_response.json()["transactions"][0]["symbol"] == "NVDA"
+    assert portfolio_response.json()["corporate_actions"][0]["action_type"] == "stock_split"
     assert portfolio_response.json()["accounting"]["cash_balance"] == 0
     assert database.scalar(select(func.count(AdminAuditLog.id))) == 1
 
@@ -160,3 +173,72 @@ def test_logout_clears_the_session_cookie(client: TestClient) -> None:
     assert response.status_code == 204
     assert "stockai_session=" in response.headers["set-cookie"]
     assert client.get("/api/v1/auth/me").status_code == 401
+
+
+def test_user_can_update_name_but_not_email_through_profile_settings(
+    client: TestClient,
+) -> None:
+    client.post(
+        "/api/v1/auth/register",
+        json={"full_name": "Original Name", "email": "profile@example.com", "password": PASSWORD},
+    )
+
+    response = client.patch("/api/v1/auth/me", json={"full_name": "  Updated   Investor  "})
+
+    assert response.status_code == 200
+    assert response.json()["user"]["full_name"] == "Updated Investor"
+    assert client.get("/api/v1/auth/me").json()["user"]["full_name"] == "Updated Investor"
+    forbidden_email_change = client.patch(
+        "/api/v1/auth/me",
+        json={"full_name": "Updated Investor", "email": "changed@example.com"},
+    )
+    assert forbidden_email_change.status_code == 422
+
+
+def test_browser_cors_preflight_allows_profile_patch(client: TestClient) -> None:
+    response = client.options(
+        "/api/v1/auth/me",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "PATCH",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "PATCH" in response.headers["access-control-allow-methods"]
+
+
+def test_password_change_requires_current_password_and_updates_login(
+    client: TestClient,
+) -> None:
+    email = "password-settings@example.com"
+    new_password = "ChangedAI456!"
+    client.post(
+        "/api/v1/auth/register",
+        json={"full_name": "Password User", "email": email, "password": PASSWORD},
+    )
+
+    wrong_password = client.post(
+        "/api/v1/auth/change-password",
+        json={"current_password": "WrongPassword!", "new_password": new_password},
+    )
+    assert wrong_password.status_code == 400
+    assert wrong_password.json()["detail"] == "Current password is incorrect."
+
+    changed = client.post(
+        "/api/v1/auth/change-password",
+        json={"current_password": PASSWORD, "new_password": new_password},
+    )
+    assert changed.status_code == 204
+
+    client.post("/api/v1/auth/logout")
+    old_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": PASSWORD},
+    )
+    new_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": new_password},
+    )
+    assert old_login.status_code == 401
+    assert new_login.status_code == 200

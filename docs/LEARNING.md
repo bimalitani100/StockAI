@@ -38,7 +38,7 @@ StockAI returns the per-symbol problem and refuses the aggregate claim.
 
 The displayed return is a simple since-inception dollar/percentage result against net contributions.
 It does not adjust for the timing of cash flows. Time-weighted return, money-weighted return, daily
-price snapshots, benchmarks, corporate actions, currency conversion, and tax reporting
+price snapshots, benchmarks, mergers, spin-offs, currency conversion, and tax reporting
 need additional models and tested rules before they belong in the interface.
 
 ## Concepts introduced by the auto-updating chart
@@ -73,3 +73,34 @@ underlying data is real-time; delivery method, upstream latency, and licensing a
 
 FIFO is a deterministic accounting policy, not personalized tax advice. StockAI does not yet support
 specific-lot selection, wash-sale calculations, jurisdiction-specific reporting, or tax filing.
+
+## Concepts introduced in v0.8
+
+- **Corporate action:** a company event that changes an investment without the user buying or selling.
+- **Forward split:** each old share becomes more shares, such as `1` old share becoming `2` new shares.
+- **Reverse split:** multiple old shares combine into fewer shares, such as `10` old shares becoming `1` new share.
+- **Economic preservation:** a split changes quantity and cost per share, but not cash or total cost basis.
+- **Chronological replay:** StockAI combines trades and splits by effective time, then recalculates the result.
+- **Precision guard:** StockAI refuses a split if it would need to silently round away fractional shares.
+
+## Stock-split example
+
+1. Buy `10` shares at `$100` each. Total cost basis is `$1,000`.
+2. Record a `2-for-1` split.
+3. The position becomes `20` shares at `$50` cost per share.
+4. Total cost basis is still `$1,000`, and cash does not move.
+5. Selling `5` adjusted shares consumes `$250` of FIFO cost basis.
+
+A split is not a buy because no new money enters the portfolio. Keeping it in a separate
+corporate-action ledger makes that difference explicit and keeps the original trade history truthful.
+Real brokers may pay cash instead of issuing some fractional shares after a reverse split. StockAI
+does not model that cash-in-lieu event yet, so it rejects unsupported fractional results.
+
+## Account-settings security
+
+- **Reauthentication:** a signed-in user must still enter the current password before changing it.
+- **Server ownership:** the settings request never sends a user ID; the session determines which account changes.
+- **Email verification boundary:** changing an email is more sensitive than changing a display name because
+  email controls login and recovery. StockAI keeps it read-only until verification is implemented.
+- **Session revocation:** changing the stored password blocks future login with the old password, but the
+  current stateless session model cannot yet invalidate every token already issued on other devices.

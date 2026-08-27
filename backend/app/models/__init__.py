@@ -2,6 +2,7 @@
 
 from app.models.audit import AdminAuditLog
 from app.models.cash_event import CashEvent, CashEventType
+from app.models.corporate_action import CorporateAction, CorporateActionType
 from app.models.portfolio import Holding, Portfolio
 from app.models.transaction import PortfolioTransaction, TransactionType
 from app.models.user import User, UserRole
@@ -11,6 +12,8 @@ __all__ = [
     "AdminAuditLog",
     "CashEvent",
     "CashEventType",
+    "CorporateAction",
+    "CorporateActionType",
     "Holding",
     "Portfolio",
     "PortfolioTransaction",

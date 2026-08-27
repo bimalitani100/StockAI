@@ -1,6 +1,6 @@
 # StockAI architecture
 
-## v0.7 system context
+## v0.8 system context
 
 ```mermaid
 flowchart LR
@@ -15,10 +15,11 @@ flowchart LR
   A -. "future" .-> M["Analytics and ML services"]
 ```
 
-The valid trade ledger controls shares; the cash ledger controls money; holdings and open FIFO lots
-are rebuildable projections. A corrected trade stays in the ledger with a void time and reason but
-is excluded from calculations. Valuation joins accounting state with current quotes but does not
-persist or alter either ledger.
+The valid trade ledger records user trades; the cash ledger controls money; the corporate-action
+ledger records company events such as stock splits. Holdings and open FIFO lots are rebuildable
+projections of those chronological records. A corrected trade or split stays visible with a void time
+and reason but is excluded from calculations. Valuation joins accounting state with current quotes
+but does not persist or alter any ledger.
 
 ## Trade correction flow
 
@@ -42,6 +43,30 @@ sequenceDiagram
 
 Corrections never update the original quantity, price, symbol, fee, or occurrence time. This keeps
 the user and audited administrators able to see what was entered and why it stopped affecting results.
+
+## Stock-split replay flow
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant A as FastAPI
+  participant D as PostgreSQL
+  B->>A: POST stock split with symbol, terms, and effective time
+  A->>D: Lock caller's portfolio
+  A->>D: Append corporate-action record
+  A->>D: Replay trades and actions chronologically
+  alt Shares remain valid and exactly representable
+    A->>D: Rebuild holdings and commit
+    A-->>B: Corporate action and updated portfolio
+  else No shares, historical oversell, or unsupported fraction
+    A->>D: Roll back action and projection
+    A-->>B: 409 Conflict
+  end
+```
+
+For identical timestamps, StockAI applies the corporate action before the trade. A split multiplies
+each open lot's share quantities by `new shares / old shares` and divides its per-share cost by the
+same ratio. Total lot cost, cash, and already-realized gain do not change.
 
 ## Auto-updating research flow
 
@@ -110,6 +135,7 @@ but sets aggregate valuation and return fields to `null` unless the valuation is
 ```mermaid
 erDiagram
   PORTFOLIO ||--o{ PORTFOLIO_TRANSACTION : records
+  PORTFOLIO ||--o{ CORPORATE_ACTION : records
   PORTFOLIO ||--o{ CASH_EVENT : records
   PORTFOLIO ||--o{ HOLDING : projects
   PORTFOLIO_TRANSACTION {
@@ -128,6 +154,15 @@ erDiagram
     string symbol nullable
     datetime occurred_at
   }
+  CORPORATE_ACTION {
+    string action_type
+    string symbol
+    decimal new_shares
+    decimal old_shares
+    datetime occurred_at
+    datetime voided_at nullable
+    string void_reason nullable
+  }
 ```
 
 `deposit`, `withdrawal`, and `opening_balance` affect net contributions. `dividend` affects cash
@@ -142,5 +177,5 @@ ledger. Lots are derived rather than persisted, avoiding two competing sources o
 
 StockAI uses `total value − net contributions` for since-inception dollar return. This is internally
 consistent for the modeled events, but it is not time-weighted return, internal rate of return, tax
-reporting, or specific-lot tax advice. Corporate actions, shorts, margin, and currency conversion
-remain future work.
+reporting, or specific-lot tax advice. Mergers, spin-offs, cash-in-lieu, shorts, margin, and currency
+conversion remain future work.

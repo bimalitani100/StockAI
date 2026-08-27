@@ -6,6 +6,27 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ### Added
 
+- Separate corporate-action ledger for forward and reverse stock splits.
+- Chronological split replay across FIFO lots, holdings, realized gain, and future sales.
+- User stock-split entry, history, and history-preserving correction controls.
+- Clickable user profile menu with generated initials, Settings navigation, and sign-out access.
+- Protected account settings for normalized display-name updates and current-password-verified password changes.
+- Audited administrator visibility into user corporate-action history without write access.
+- PostgreSQL migration and safety coverage for backdating, correction, ownership, and fractional precision.
+
+### Changed
+
+- Tax-lot responses now distinguish originally purchased shares from split-adjusted shares.
+- Portfolio replay rejects a split that would require silent rounding beyond six-decimal share precision.
+
+### Fixed
+
+- Allowed the profile settings `PATCH` request through CORS so browser-based name updates reach FastAPI.
+
+## [0.7.0] - 2026-08-23
+
+### Added
+
 - User-owned trade corrections that preserve the original transaction, correction time, and reason.
 - Safety replay that rejects a correction when it would create a historical oversell or cash deficit.
 - FIFO tax-lot inventory API and dashboard view with remaining quantity and per-lot cost basis.
